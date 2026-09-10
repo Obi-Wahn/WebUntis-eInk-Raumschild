@@ -208,7 +208,59 @@ Damit das Programm bei einem Neustart des Raspberry Pi automatisch ausgeführt w
    sudo systemctl enable raumanzeige.service  
    sudo systemctl start raumanzeige.service
 
-## **9. Rechteverwaltung für das Webinterface (Sudoers)**
+## **9. WLAN-Wächter einrichten (empfohlen)**
+
+Scheitert die WPA-Schlüsselverhandlung ein einziges Mal — in einem dicht belegten 2,4-GHz-Band geht schon einmal ein Paket verloren —, deutet der NetworkManager das als falsches Passwort und fordert ein neues an. Auf einem Gerät ohne Bildschirm beantwortet diese Frage niemand, und er gibt daraufhin endgültig auf (`state change: need-auth -> failed (reason 'no-secrets')`) — er sucht danach nicht einmal mehr nach dem Netz.
+
+Für ein Schild an der Wand ist das der Unterschied zwischen „fällt gelegentlich aus und kommt wieder" und „ist weg, bis jemand den Stecker zieht". Die Offline-Rücklage zeigt in diesem Fall weiterhin den zuletzt geholten Plan an, aber von allein kehrt die Verbindung nicht zurück.
+
+Der beiliegende Wächter prüft alle zwei Minuten, ob eine IPv4-Adresse vorhanden ist, und stößt andernfalls einen frischen Verbindungsversuch an. Ein frischer Versuch nutzt das gespeicherte Passwort ganz normal — er tut also dasselbe wie ein Neustart, nur ohne Neustart. Die Ursache behebt er nicht; er sorgt nur dafür, dass ein einzelner Fehlschlag nicht endgültig ist.
+
+1. **Dienst-Datei erstellen:**  
+   sudo nano /etc/systemd/system/tuerschild-wlan-waechter.service
+
+2. **Konfiguration einfügen:**  
+   [Unit]  
+   Description=WLAN-Waechter fuer das Tuerschild  
+   After=NetworkManager.service  
+   Wants=NetworkManager.service
+
+   [Service]  
+   Type=oneshot  
+   ExecStart=/home/pi/webuntis-display/wlan-waechter.sh
+
+3. **Zeitgeber-Datei erstellen:**  
+   sudo nano /etc/systemd/system/tuerschild-wlan-waechter.timer
+
+4. **Konfiguration einfügen:**  
+   [Unit]  
+   Description=Prueft alle zwei Minuten die WLAN-Verbindung des Tuerschilds
+
+   [Timer]  
+   OnBootSec=2min  
+   OnUnitActiveSec=2min  
+   AccuracySec=10s
+
+   [Install]  
+   WantedBy=timers.target
+
+5. **Aktivieren:**  
+   sudo systemctl daemon-reload  
+   sudo systemctl enable --now tuerschild-wlan-waechter.timer
+
+Aktiviert wird nur der Zeitgeber — den Dienst startet er selbst. Da `ExecStart` auf das Skript im Projektverzeichnis zeigt, werden spätere Verbesserungen daran mit `./update.sh` automatisch mit eingespielt.
+
+**Prüfen, ob er wirklich greift.** Bitte an einer Tastatur am Gerät, nicht über SSH — der Test trennt die Verbindung, über die eine SSH-Sitzung liefe:
+
+journalctl -t wlan-waechter -f
+
+und in einer zweiten Sitzung:
+
+sudo nmcli device disconnect wlan0
+
+Innerhalb von zwei Minuten muss im Journal „Keine IPv4-Adresse … — neuer Verbindungsversuch." und kurz darauf „Verbindung wiederhergestellt." stehen. Bleibt das aus, ist der Zeitgeber nicht aktiv (`systemctl list-timers tuerschild-wlan-waechter.timer`) oder der Pfad in `ExecStart` stimmt nicht.
+
+## **10. Rechteverwaltung für das Webinterface (Sudoers)**
 
 Da der Webserver aus Sicherheitsgründen als unprivilegierter Benutzer (pi) läuft, kann er das System normalerweise nicht eigenständig über die Web-Buttons herunterfahren oder neustarten. Wir erteilen dem Nutzer pi daher gezielt eine "Ausnahmegenehmigung" für exakt diese beiden Befehle, ohne dass eine Passworteingabe (die das Skript blockieren würde) erforderlich ist.
 
@@ -219,7 +271,7 @@ Da der Webserver aus Sicherheitsgründen als unprivilegierter Benutzer (pi) läu
    *(Wenn Sie einen anderen Benutzernamen als pi verwenden, passen Sie das erste Wort entsprechend an)*  
    pi ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/poweroff
 
-## **10. Aktualisierungen einspielen**
+## **11. Aktualisierungen einspielen**
 
 Spätere Programmstände werden mit dem beiliegenden Skript eingespielt:
 
