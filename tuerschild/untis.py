@@ -327,7 +327,7 @@ def hole_stundenplan(session, raum, tag):
     WebUntis nur heraus, wenn der Abruf sie ausdruecklich anfordert. Der
     einfache Aufruf liefert sie nicht - an einer echten Schule nachgemessen:
     75 Stunden, kein einziges Bemerkungsfeld, waehrend dieselben 75 Stunden
-    erweitert abgerufen Texte wie "Vocabulary and grammar test" enthielten.
+    erweitert abgerufen sehr wohl Bemerkungen der Lehrkraefte enthielten.
     Das Tuerschild bereitet solche Texte auf und kuerzt sie bei Platzmangel
     gestaffelt - nur kamen sie bis dahin nie an. Beide Aufrufe gehen an
     dieselbe Schnittstelle und brauchen dieselben Rechte; der erweiterte

@@ -248,10 +248,10 @@ def test_die_bemerkung_erreicht_die_anzeige(sitzung, conf):
     hineinschreibt, soll an der Tuer stehen.
     """
     sitzung(stunden=[RohStunde(8, 0, 8, 45, "Englisch",
-                               info="Vocabulary and grammar test")])
+                               info="Bitte Zirkel und Geodreieck mitbringen")])
     daten, _ = R.get_current_lesson(conf)
 
-    assert "Vocabulary and grammar test" in daten["current"].stunden_info
+    assert "Bitte Zirkel und Geodreieck mitbringen" in daten["current"].stunden_info
 
 
 def test_abgelehnte_optionen_kosten_nur_die_bemerkung_nicht_den_plan(sitzung, conf):
