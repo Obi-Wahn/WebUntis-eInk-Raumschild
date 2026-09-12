@@ -11,14 +11,16 @@ Testsuite sie ersetzen kann - siehe den Hinweis in anzeige.py.
 import datetime
 import logging
 import time
+from dataclasses import replace
 
 from .anzeige import update_display_logic
 from .hardware import (check_touch_via_i2c, clear_display_once,
                        clear_touch_interrupt_via_i2c)
 from .konfiguration import (formatiere_dauer, get_cached_config, get_now,
                             get_update_interval)
-from .konstanten import (BACKGROUND_ERROR_PAUSE, STALE_ALERT_SECONDS,
-                         TOUCH_COOLDOWN, TRANSIENT_ERRORS)
+from .konstanten import (BACKGROUND_ERROR_PAUSE, PRUEFUNG_KLASSENARBEIT,
+                         STALE_ALERT_SECONDS, TOUCH_COOLDOWN,
+                         TRANSIENT_ERRORS)
 from .untis import get_current_lesson, get_offline_fallback
 from .zustand import Lesson, app_state
 
@@ -44,33 +46,105 @@ def demo_daten():
                        "10:45 - 11:30", "4. Std.", None, ""),
     }
 
+# Erfundene Stunden fuer den Fall, dass noch kein Tagesplan vorliegt - etwa
+# beim Aufhaengen, bevor WebUntis ueberhaupt erreichbar war.
+#
+# Der Name der ersten ist mit Bedacht lang: Neben dem breitesten Etikett
+# ("KLASSENARBEIT") bleiben 140 Pixel, "Gesellschaftswissenschaften" braucht
+# 195. So zeigt der Testlauf die Kuerzung auch dann, wenn noch keine echten
+# Namen vorliegen. Ein kuerzerer Name wuerde schlicht passen - und die engste
+# Stelle des Layouts bliebe ungezeigt. tests/test_demo_und_testlauf.py haelt
+# das nach, damit die Zusicherung nicht beim naechsten Umbenennen verlorengeht.
+ERSATZSTUNDE_JETZT = Lesson("GeWi", "Gesellschaftswissenschaften", "Gk", "8C",
+                            "11:45 - 12:30", "5. Std.", None, "")
+ERSATZSTUNDE_DANACH = Lesson("WuN", "Werte u. Normen", "Ab", "9B",
+                             "12:35 - 13:20", "6. Std.", None, "")
+
+# Bemerkungstexte der Szenarien. Sie bleiben erfunden, auch wenn die Stunden
+# echt sind: Echte Stunden tragen meistens gar keine Bemerkung, und dann bliebe
+# die Detailzeile mit ihrer gestaffelten Kuerzung im Testlauf ungeprueft.
+TESTLAUF_BEMERKUNGEN = ("Buch auf Seite 12 aufschlagen",
+                        "Aufgaben in IServ bearbeiten",
+                        "Achtung: Raumaenderung nach In2",
+                        "Bitte Zirkel und Geodreieck mitbringen")
+
+def _vorlagen_aus_plan(plan):
+    """
+    Sucht aus dem Tagesplan zwei Stunden als Vorlage fuer den Testlauf.
+
+    Gewaehlt wird die mit dem LAENGSTEN Fachnamen. Genau dort wird es im Layout
+    eng: Der Fachname steht neben dem Etikett ("AUSFALL", "KLASSENARBEIT"), und
+    was nicht mehr passt, wird gekuerzt. Mit erfundenen Namen sieht man die
+    eigene engste Stelle nie - bis sie im Betrieb auftritt.
+
+    Gibt None zurueck, wenn kein Plan vorliegt; dann greifen die Ersatzstunden.
+    """
+    stunden = [eintrag.lesson for eintrag in (plan or []) if eintrag.lesson]
+    if not stunden:
+        return None
+
+    laengste = max(stunden, key=lambda stunde: len(stunde.fach_lang or stunde.fach))
+    weitere = next((stunde for stunde in stunden if stunde is not laengste), laengste)
+    return laengste, weitere
+
+def testlauf_szenarien(plan=None):
+    """
+    Baut die Bilderfolge des Testlaufs - moeglichst mit echten Fachnamen.
+
+    WARUM NICHT EINFACH DER ECHTE PLAN: Ein gewoehnlicher Schultag enthaelt
+    weder Ausfall noch Vertretung noch eine Klassenarbeit. Wer den Knopf
+    drueckt, um genau die zu pruefen, saehe sechsmal gewoehnlichen Unterricht.
+    Ausserdem waere jeder Durchlauf anders, und zwei Durchlaeufe liessen sich
+    nicht mehr vergleichen.
+
+    WARUM TROTZDEM ECHTE NAMEN: Die Laengen sind das, was im Layout zaehlt.
+    Heisst das laengste Fach an der Schule anders als in einer erfundenen
+    Liste, sieht man dessen Kuerzung erst im Betrieb.
+
+    Die Zustaende werden den echten Stunden also aufgepraegt: dieselbe Stunde
+    einmal gewoehnlich, einmal als Ausfall, einmal als Vertretung ohne
+    Folgestunde, einmal mit Klassenarbeit.
+    """
+    vorlagen = _vorlagen_aus_plan(plan)
+    jetzt, danach = vorlagen if vorlagen else (ERSATZSTUNDE_JETZT, ERSATZSTUNDE_DANACH)
+
+    def fall(status, bemerkung, folgestunde):
+        return ({"current": replace(jetzt, status_code=status, pruefung="",
+                                    stunden_info=bemerkung),
+                 "next": folgestunde}, "")
+
+    def klassenarbeit(bemerkung):
+        # Das laengste Etikett ueberhaupt neben dem laengsten Fachnamen - die
+        # engste Kombination, die das Schild zeigen kann.
+        return ({"current": replace(jetzt, status_code=None,
+                                    pruefung=PRUEFUNG_KLASSENARBEIT,
+                                    stunden_info=bemerkung),
+                 "next": danach}, "")
+
+    return [
+        fall(None, TESTLAUF_BEMERKUNGEN[0], danach),
+        fall("cancelled", TESTLAUF_BEMERKUNGEN[1], danach),
+        fall("irregular", TESTLAUF_BEMERKUNGEN[2], None),
+        klassenarbeit(TESTLAUF_BEMERKUNGEN[3]),
+        (None, "Unterrichtsfrei!\n(Ferienzeit)"),
+        (None, "Schönes Wochenende!"),
+        (None, "Kein WLAN/Internet"),
+    ]
+
 def run_display_test_sequence() -> None:
     """
-    Spielt hardcodierte Test-Szenarien nacheinander auf dem Hardware-Display ab.
-    Dient zur Überprüfung von Sonderfällen (Ausfall, Vertretung, Lauftext) 
-    direkt vor Ort im Flur, ohne reale Plandaten manipulieren zu müssen.
+    Spielt die Test-Szenarien nacheinander auf dem Hardware-Display ab.
+    Dient zur Überprüfung von Sonderfällen (Ausfall, Vertretung, Klassenarbeit,
+    Lauftext) direkt vor Ort im Flur, ohne reale Plandaten manipulieren zu
+    müssen - und ohne Netz, denn der Tagesplan kommt aus der Rücklage.
     """
     with app_state.state_lock:
         app_state.test_mode_active = True
-        
+        plan = app_state.cached_lessons
+
     conf = get_cached_config()
-    
-    # Nutzung der neuen Dataclass für die Dummy-Daten
-    test_cases = [
-        ( {"current": Lesson("Geschichte", "Geschichte (Epochal)", "Ab", "9B", "08:00 - 08:45", "1. Std.", None, "Buch auf Seite 12 aufschlagen"),
-           "next": Lesson("Informatik", "Informatik", "Cd", "11B", "08:50 - 09:35", "2. Std.", None, "")}, "" ),
-        
-        ( {"current": Lesson("Religion", "Religion", "Ef", "7A", "09:55 - 10:40", "3. Std.", "cancelled", "Aufgaben in IServ bearbeiten"),
-           "next": Lesson("Geschichte", "Geschichte", "Ef", "12", "10:45 - 11:30", "4. Std.", None, "")}, "" ),
-        
-        ( {"current": Lesson("Werte u. Normen", "Werte u. Normen", "Gk", "8C", "11:45 - 12:30", "5. Std.", "irregular", "Achtung: Raumänderung nach In2"),
-           "next": None}, "" ),
-        
-        ( None, "Unterrichtsfrei!\n(Ferienzeit)" ),
-        ( None, "Schönes Wochenende!" ),
-        ( None, "Kein WLAN/Internet" )
-    ]
-    
+    test_cases = testlauf_szenarien(plan)
+
     for data, msg in test_cases:
         if app_state.shutdown_event.is_set(): break
         # Dieselbe Meldung wie auf dem Display, nicht der Fortschritt des
