@@ -105,6 +105,29 @@ SCHEDULE_NAME_MAX_LEN = 30      # "Mittagspause" braucht 12 Zeichen
 # Stunden - und das sieht man dem Schild nicht an.
 STALE_ALERT_SECONDS = 3 * 3600  # 3 Stunden
 
+# ------------------------------------------------------------------------------
+# Systemuhr
+# ------------------------------------------------------------------------------
+# Der Raspberry Pi Zero 2 W hat keine Echtzeituhr. Nach einem Stromausfall
+# startet er mit der zuletzt gespeicherten Zeit und stellt sie erst, wenn er im
+# Netz ist. Ist das Netz da, NTP aber nicht erreichbar - in einem Schulnetz
+# keine Seltenheit -, bleibt die Uhr falsch, waehrend WebUntis bereitwillig
+# antwortet. Das Schild zeigt dann einen vollkommen plausiblen Plan, nur den
+# des falschen Tages. Genau diese Sorte Ausfall faellt niemandem auf.
+#
+# systemd-timesyncd legt diese Datei an, sobald es die Uhr einmal erfolgreich
+# gestellt hat. Sie liegt unter /run (im Arbeitsspeicher) und ist nach jedem
+# Neustart wieder weg - genau die Auskunft, die gebraucht wird. Abgefragt wird
+# sie ueber os.path.exists(): kein Unterprozess, keine Rechte, kein Warten.
+TIMESYNC_VERZEICHNIS = "/run/systemd/timesync"
+TIMESYNC_MARKE = "/run/systemd/timesync/synchronized"
+
+# Wie lange eine ungestellte Uhr hingenommen wird, bevor das Protokoll eine
+# Meldung bekommt. Beim Hochfahren ist sie einen Moment lang normal - das
+# Tuerschild startet, bevor das WLAN steht. Ohne diese Frist stuende nach jedem
+# Neustart eine Fehlermeldung im Journal, die nichts bedeutet.
+UHR_ALERT_SECONDS = 10 * 60  # 10 Minuten
+
 # Fehlermeldungen, die auf eine *vorübergehende* Störung hindeuten (Netz/Server).
 # Nur bei diesen greifen wir auf den zuletzt abgerufenen Tagesplan zurück.
 # Konfigurationsfehler (falsches Passwort, fehlender Raum) sind dagegen dauerhaft

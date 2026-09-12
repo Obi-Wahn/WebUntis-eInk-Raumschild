@@ -188,6 +188,7 @@ def sauberer_zustand():
         "cached_holidays", "last_holidays_fetch",
         "cached_exams", "cached_exams_date", "last_exams_fetch",
         "stoerung_seit", "stoerung_gemeldet",
+        "uhr_unsynchron_seit", "uhr_gemeldet",
         "save_error", "save_ok",
     ]
     vorher = {name: getattr(R.app_state, name) for name in felder}

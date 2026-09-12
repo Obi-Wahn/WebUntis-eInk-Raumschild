@@ -112,6 +112,13 @@ class AppState:
         self.stoerung_seit: Optional[float] = None
         self.stoerung_gemeldet: bool = False
 
+        # Seit wann die Systemuhr ungestellt ist, und ob das schon im
+        # Protokoll steht. Dieselbe Machart wie bei der Stoerung oben und aus
+        # demselben Grund: Ohne das Merkzeichen schriebe jeder
+        # Schleifendurchlauf dieselbe Zeile erneut.
+        self.uhr_unsynchron_seit: Optional[float] = None
+        self.uhr_gemeldet: bool = False
+
         # Rueckmeldung des Speicherformulars an die naechste Seitenanzeige.
         # Wird beim Anzeigen gelesen und geleert (siehe web.index), denn sie
         # gehoert zu genau einem Speichervorgang.

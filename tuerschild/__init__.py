@@ -35,7 +35,7 @@ from .konstanten import (BACKGROUND_ERROR_PAUSE, DEFAULT_UPDATE_SECONDS,
                          SCHEDULE_NAME_MAX_LEN, SIMULATION_MAX_SECONDS,
                          STALE_ALERT_SECONDS, STATUS_LABELS, TOUCH_COOLDOWN,
                          TOUCH_I2C_ADDR, TOUCH_RST_PIN, TRANSIENT_ERRORS,
-                         TRUSTED_PROXIES,
+                         TRUSTED_PROXIES, UHR_ALERT_SECONDS,
                          UI_BADGE_GAP, UI_BADGE_PADDING,
                          UI_BLOCK_DANACH_Y, UI_BLOCK_JETZT_Y, UI_ELLIPSIS,
                          UI_HEADER_GAP, UI_STALE_ZEICHEN,
@@ -45,8 +45,9 @@ from .konstanten import (BACKGROUND_ERROR_PAUSE, DEFAULT_UPDATE_SECONDS,
 from .zustand import AppState, Lesson, TimedLesson, app_state
 from .konfiguration import (CONFIG_FILE, formatiere_dauer, get_cached_config,
                             get_now, get_update_interval,
-                            melde_konfigurationsfehler, pruefe_konfiguration,
-                            pruefe_raumname, pruefe_stundenplan, save_config)
+                            melde_konfigurationsfehler, pruefe_intervall,
+                            pruefe_konfiguration, pruefe_raumname,
+                            pruefe_stundenplan, save_config, uhr_synchronisiert)
 from .hardware import (check_touch_via_i2c, clear_display_once,
                        clear_touch_interrupt_via_i2c, init_fonts)
 from .anzeige import (build_detail_line, draw_lesson_block, get_text_width,
@@ -55,6 +56,6 @@ from .anzeige import (build_detail_line, draw_lesson_block, get_text_width,
 from .untis import (get_current_lesson, get_offline_fallback, parse_lesson,
                     resolve_timetable, select_lessons)
 from .steuerung import (background_loop, melde_stoerungsdauer,
-                        run_display_test_sequence)
+                        melde_uhrzustand, run_display_test_sequence)
 from .web import (app, check_auth, cleanup_failed_logins, get_client_ip,
                   get_local_ip)

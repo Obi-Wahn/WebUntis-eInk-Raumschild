@@ -18,10 +18,10 @@ from .anzeige import update_display_logic
 from .hardware import (check_touch_via_i2c, clear_display_once,
                        clear_touch_interrupt_via_i2c)
 from .konfiguration import (formatiere_dauer, get_cached_config, get_now,
-                            get_update_interval)
+                            get_update_interval, uhr_synchronisiert)
 from .konstanten import (BACKGROUND_ERROR_PAUSE, PRUEFUNG_KLASSENARBEIT,
                          STALE_ALERT_SECONDS, TOUCH_COOLDOWN,
-                         TRANSIENT_ERRORS)
+                         TRANSIENT_ERRORS, UHR_ALERT_SECONDS)
 from .untis import get_current_lesson, get_offline_fallback
 from .zustand import Lesson, app_state
 
@@ -208,6 +208,64 @@ def melde_stoerungsdauer(stoerung_aktiv: bool, fehler: str) -> None:
                 f"nicht erreichbar ({fehler}). Das Schild zeigt weiterhin den zuletzt "
                 "abgerufenen Plan von heute - kurzfristige Änderungen fehlen darin. "
                 "Bitte Netzwerk und WebUntis-Zugang prüfen."
+            )
+
+
+def melde_uhrzustand() -> None:
+    """
+    Schlaegt Alarm, wenn die Systemuhr laenger ungestellt bleibt.
+
+    WARUM DAS NOETIG IST:
+    Der Raspberry Pi Zero 2 W hat keine Echtzeituhr. Nach einem Stromausfall
+    beginnt er mit der zuletzt gespeicherten Zeit. Ist gar kein Netz da, faellt
+    das nicht ins Gewicht - dann steht ohnehin "Kein WLAN/Internet" auf dem
+    Schild. Der gefaehrliche Fall ist der andere: WLAN da, NTP aber blockiert,
+    wie es in einem Schulnetz vorkommt. WebUntis antwortet dann bereitwillig,
+    gefragt wird es nur nach dem falschen Tag - und auf dem Schild steht ein
+    vollkommen plausibler Plan von gestern.
+
+    Das ist dieselbe Sorte Ausfall wie eine veraltete Ruecklage, nur schlimmer:
+    Dort stimmt wenigstens der Tag. Hier stimmt gar nichts, und man sieht es
+    dem Schild an keiner Stelle an.
+
+    WARUM ERST NACH EINER FRIST:
+    Beim Hochfahren ist die Uhr einen Moment lang ungestellt - das Tuerschild
+    startet, bevor das WLAN steht. Ohne UHR_ALERT_SECONDS stuende nach jedem
+    Neustart eine Fehlermeldung im Journal, die nichts bedeutet. Eine Meldung,
+    die immer dasteht, liest nach drei Tagen niemand mehr.
+
+    Gemessen wird mit time.time() und nicht mit get_now(): Eine gesetzte
+    Zeitsimulation wuerde die Rechnung sonst verfaelschen - und ausgerechnet
+    hier geht es um die Uhr.
+    """
+    synchron = uhr_synchronisiert()
+    jetzt = time.time()
+
+    with app_state.state_lock:
+        # None heisst "nicht feststellbar" und ist kein Anlass zur Klage:
+        # Wer seine Zeit ueber chrony holt, hat diese Datei nie.
+        if synchron is not False:
+            if app_state.uhr_gemeldet:
+                logging.info("Die Systemuhr ist wieder gestellt. Das Schild zeigt "
+                             "wieder den richtigen Tag.")
+            app_state.uhr_unsynchron_seit = None
+            app_state.uhr_gemeldet = False
+            return
+
+        if app_state.uhr_unsynchron_seit is None:
+            app_state.uhr_unsynchron_seit = jetzt
+
+        dauer_sekunden = jetzt - app_state.uhr_unsynchron_seit
+        if dauer_sekunden >= UHR_ALERT_SECONDS and not app_state.uhr_gemeldet:
+            app_state.uhr_gemeldet = True
+            logging.error(
+                f"UNGESTELLTE UHR: Die Systemuhr wurde seit dem Start nicht "
+                f"gestellt (seit {formatiere_dauer(dauer_sekunden)}). Dieses "
+                "Gerät hat keine Echtzeituhr; ohne Zeitabgleich fragt es "
+                "WebUntis nach dem falschen Tag und zeigt einen plausibel "
+                "aussehenden, aber falschen Plan. Bitte prüfen, ob der "
+                "Zeitabgleich (NTP) aus diesem Netz erreichbar ist: "
+                "timedatectl show -p NTPSynchronized"
             )
 
 
@@ -508,6 +566,11 @@ def ein_durchlauf(zustand: Schleifenzustand) -> None:
 
     with app_state.state_lock:
         app_state.force_update_flag = False
+
+    # Vor dem Zeichnen: Steht das Datum ueberhaupt richtig, nach dem gleich
+    # gefragt wird? Die Pruefung sitzt hier und nicht weiter oben, weil sie
+    # sonst zwei Mal pro Sekunde liefe, ohne je etwas anderes zu sagen.
+    melde_uhrzustand()
 
     aktualisiere_anzeige(conf, zustand, current_dt, ist_manuell, zeige_demo)
 

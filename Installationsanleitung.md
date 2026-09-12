@@ -56,7 +56,7 @@ deactivate
 
 Die Datei `requirements.txt` liegt bereits im Projektverzeichnis, da sie mit dem `git clone` aus Schritt 3 heruntergeladen wurde. Auf Raspberry Pi OS muss dabei nichts kompiliert werden: Die vorkonfigurierte Paketquelle „piwheels" liefert fertig gebaute ARM-Pakete.
 
-Für die Testsuite werden zusätzlich die Werkzeuge aus `requirements-dev.txt` benötigt. Sie sind für den reinen Betrieb nicht erforderlich, aber empfehlenswert: Das Aktualisierungs-Skript aus Schritt 10 lässt die Tests vor jedem Neustart des Dienstes laufen und überspringt sie, wenn `pytest` fehlt.
+Für die Testsuite werden zusätzlich die Werkzeuge aus `requirements-dev.txt` benötigt. Sie sind für den reinen Betrieb nicht erforderlich, aber empfehlenswert: Das Aktualisierungs-Skript aus Schritt 12 lässt die Tests vor jedem Neustart des Dienstes laufen und überspringt sie, wenn `pytest` fehlt.
 
 source webuntis/bin/activate  
 pip install -r requirements-dev.txt  
@@ -260,7 +260,34 @@ sudo nmcli device disconnect wlan0
 
 Innerhalb von zwei Minuten muss im Journal „Keine IPv4-Adresse … — neuer Verbindungsversuch." und kurz darauf „Verbindung wiederhergestellt." stehen. Bleibt das aus, ist der Zeitgeber nicht aktiv (`systemctl list-timers tuerschild-wlan-waechter.timer`) oder der Pfad in `ExecStart` stimmt nicht.
 
-## **10. Rechteverwaltung für das Webinterface (Sudoers)**
+## **10. Zeitabgleich prüfen**
+
+Der Raspberry Pi Zero 2 W hat **keine Echtzeituhr.** Nach einem Stromausfall beginnt er mit der zuletzt gespeicherten Zeit und stellt sie erst, wenn er im Netz ist.
+
+Solange gar kein Netz da ist, fällt das nicht weiter auf — dann steht ohnehin „Kein WLAN/Internet" auf dem Schild. Der gefährliche Fall ist der andere: **WLAN da, Zeitabgleich aber blockiert.** Das kommt in Schulnetzen vor, in denen ausgehende NTP-Verbindungen gefiltert werden. WebUntis antwortet dann bereitwillig, gefragt wird es nur nach dem falschen Tag — und auf dem Schild steht ein vollkommen plausibler Plan von gestern. Das sieht man dem Gerät an keiner Stelle an.
+
+Prüfen Sie deshalb einmal, ob der Abgleich aus Ihrem Netz funktioniert:
+
+```bash
+timedatectl show -p NTPSynchronized -p TimeUSec
+systemctl is-active systemd-timesyncd
+```
+
+Erwartet werden `NTPSynchronized=yes`, eine plausible Uhrzeit und `active`. Steht dort `NTPSynchronized=no`, ist der Zeitabgleich aus diesem Netz nicht erreichbar; wenden Sie sich an die Netzbetreuung Ihrer Schule oder tragen Sie in `/etc/systemd/timesyncd.conf` einen im Haus erreichbaren Zeitserver ein.
+
+Das Türschild überwacht das ab jetzt selbst. Bleibt die Uhr nach dem Start länger als zehn Minuten ungestellt, schreibt es eine Meldung ins Journal, und im Web-Interface erscheint ein roter Hinweis; in der Statusliste steht dann „Uhr: nicht gestellt". Die Wartezeit ist Absicht — beim Hochfahren ist die Uhr immer einen Moment lang ungestellt, weil das Türschild startet, bevor das WLAN steht.
+
+*Hinweis:* Die Erkennung stützt sich auf die Datei, die `systemd-timesyncd` nach dem ersten geglückten Abgleich anlegt. Holt Ihre Anlage die Zeit über einen anderen Dienst (etwa `chrony`), kann das Türschild die Frage nicht beantworten und meldet **nichts** — eine Warnung, die nicht stimmt, wäre schlechter als keine.
+
+**Zusätzlich empfohlen:** `fake-hwclock` speichert die Uhrzeit beim Herunterfahren und stellt sie beim nächsten Start wieder her. Ohne diesen Dienst beginnt der Pi nach einem Stromausfall bei einem deutlich älteren Zeitpunkt. Auf Raspberry Pi OS ist er in der Regel eingerichtet; prüfen lässt sich das so:
+
+```bash
+systemctl is-enabled fake-hwclock
+```
+
+Erwartet wird `enabled`. Nicht verwirren lassen: `systemctl is-active fake-hwclock` meldet `inactive`, und das ist richtig so — der Dienst läuft einmalig beim Start und beim Herunterfahren, nicht dauerhaft. Für die Frage, ob er eingerichtet ist, zählt allein `is-enabled`.
+
+## **11. Rechteverwaltung für das Webinterface (Sudoers)**
 
 Da der Webserver aus Sicherheitsgründen als unprivilegierter Benutzer (pi) läuft, kann er das System normalerweise nicht eigenständig über die Web-Buttons herunterfahren oder neustarten. Wir erteilen dem Nutzer pi daher gezielt eine "Ausnahmegenehmigung" für exakt diese beiden Befehle, ohne dass eine Passworteingabe (die das Skript blockieren würde) erforderlich ist.
 
@@ -271,7 +298,7 @@ Da der Webserver aus Sicherheitsgründen als unprivilegierter Benutzer (pi) läu
    *(Wenn Sie einen anderen Benutzernamen als pi verwenden, passen Sie das erste Wort entsprechend an)*  
    pi ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/poweroff
 
-## **11. Aktualisierungen einspielen**
+## **12. Aktualisierungen einspielen**
 
 Spätere Programmstände werden mit dem beiliegenden Skript eingespielt:
 

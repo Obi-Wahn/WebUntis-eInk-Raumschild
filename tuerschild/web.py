@@ -24,7 +24,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .anzeige import sichtbare_raumzeichen, zeichne_anzeige
 from .konfiguration import (formatiere_dauer, get_cached_config, get_now,
                             get_update_interval, pruefe_intervall,
-                            pruefe_raumname, save_config)
+                            pruefe_raumname, save_config, uhr_synchronisiert)
 from .konstanten import (FAILED_LOGIN_MAX, FAILED_LOGIN_TTL,
                          LOGIN_LOCKOUT_SECONDS,
                          MAX_LOGIN_ATTEMPTS, MAX_UPDATE_SECONDS,
@@ -275,6 +275,12 @@ def index():
 
     display_time = get_now().strftime("%d.%m.%Y %H:%M:%S")
 
+    # Ungestellte Systemuhr: Das Geraet hat keine Echtzeituhr. Ist NTP aus
+    # diesem Netz nicht erreichbar, fragt das Schild WebUntis nach dem falschen
+    # Tag - und zeigt einen plausiblen Plan von gestern. None heisst "nicht
+    # feststellbar" und wird nicht gemeldet (siehe uhr_synchronisiert()).
+    uhr_synchron = uhr_synchronisiert()
+
     return render_template(
         DASHBOARD_VORLAGE,
         conf=conf, 
@@ -282,6 +288,7 @@ def index():
         beschreibung=vorschau_beschreibung(d_data, d_msg_raw),
         now=display_time,
         sim_active=is_simulated,
+        uhr_synchron=uhr_synchron,
         # Waehrend des Testlaufs zeigt die Vorschau die Testbilder - sie ist
         # also echt, aber sie zeigt nicht den Betrieb. Ohne diesen Hinweis
         # koennte jemand einen Ausfall fuer echt halten, den gerade der
