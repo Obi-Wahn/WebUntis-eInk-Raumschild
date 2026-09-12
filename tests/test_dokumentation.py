@@ -71,3 +71,31 @@ def test_die_beispielzeiten_sind_zweistellig():
 
     for zeit in zeiten:
         assert re.fullmatch(r"\d{2}:\d{2}", zeit), f"'{zeit}' ist nicht zweistellig"
+
+
+def test_die_schritte_der_anleitung_sind_lueckenlos_nummeriert():
+    """
+    Die Anleitung wird von oben nach unten abgearbeitet, und ihre Abschnitte
+    verweisen aufeinander ("das Skript aus Schritt 12"). Wird mittendrin ein
+    Abschnitt eingefuegt, muessen alle folgenden Nummern mitwandern - genau das
+    ist beim Einfuegen des WLAN-Waechters einmal unterblieben.
+
+    Was dieser Test NICHT leisten kann: Ob ein Verweis auf den inhaltlich
+    richtigen Abschnitt zeigt. Er faengt die Luecke, nicht den falschen Bezug.
+    """
+    nummern = [int(n) for n in re.findall(r"^## \*\*(\d+)\.", lies("Installationsanleitung.md"),
+                                          re.MULTILINE)]
+    assert nummern, "Die Anleitung hat keine nummerierten Abschnitte mehr"
+    assert nummern == list(range(1, len(nummern) + 1)), \
+        f"Die Abschnitte sind nicht lueckenlos von 1 an nummeriert: {nummern}"
+
+
+def test_verweise_zeigen_auf_vorhandene_schritte():
+    """Ein Verweis auf "Schritt 14" bei zwölf Abschnitten ist ein Tippfehler."""
+    anleitung = lies("Installationsanleitung.md")
+    hoechste = max(int(n) for n in re.findall(r"^## \*\*(\d+)\.", anleitung, re.MULTILINE))
+
+    for text, wo in [(anleitung, "Installationsanleitung.md"), (lies("readme.md"), "readme.md")]:
+        for verweis in re.findall(r"Schritt (\d+)", text):
+            assert 1 <= int(verweis) <= hoechste, \
+                f"{wo} verweist auf Schritt {verweis}, es gibt nur {hoechste}"

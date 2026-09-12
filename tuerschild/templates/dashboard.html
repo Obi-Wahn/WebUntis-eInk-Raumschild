@@ -257,6 +257,19 @@
                Meldung. Bis dahin ist ein Ausfall Alltag; danach fehlen dem Plan
                seit Stunden alle Vertretungen, ohne dass man das dem Schild
                ansieht. Denselben Schwellwert nutzt das Protokoll. #}
+            {# Eine ungestellte Uhr wiegt schwerer als ein Abrufausfall: Dort
+               stimmt wenigstens der Tag. Hier ist der ganze Plan der eines
+               anderen Tages - und man sieht es dem Schild nicht an. #}
+            {% if uhr_synchron is false %}
+                <div class="error-msg">
+                    Die Systemuhr wurde seit dem Start nicht gestellt.<br>
+                    Dieses Gerät hat keine Echtzeituhr. Ohne Zeitabgleich fragt es WebUntis
+                    nach dem falschen Tag und zeigt einen plausibel aussehenden, aber
+                    falschen Plan.<br><br>
+                    Bitte prüfen, ob der Zeitabgleich (NTP) aus diesem Netz erreichbar ist.
+                </div>
+            {% endif %}
+
             {% if stale or stoerung_dauer %}
                 <div class="{% if stoerung_lang %}error-msg{% else %}warn-msg{% endif %}">
                     WebUntis ist derzeit nicht erreichbar{% if stoerung_dauer %} (seit {{ stoerung_dauer }}){% endif %}.<br>
@@ -351,8 +364,16 @@
                             <dd {% if stale %}class="status-warn"{% endif %}>{{ "aus der Rücklage" if stale else "aktuell" }}</dd></div>
                         <div><dt>Abruf alle</dt>
                             <dd>{{ update_interval // 60 }} Min.</dd></div>
+                        {# Drei Zustaende, nicht zwei: 'uhr_synchron' ist None,
+                           wenn sich die Frage nicht beantworten laesst (anderer
+                           Zeitdienst als timesyncd). Dann bleibt es bei
+                           "Echtzeit" - eine Warnung, die nicht stimmt, waere
+                           schlimmer als keine. #}
                         <div><dt>Uhr</dt>
-                            <dd {% if sim_active %}class="status-warn"{% endif %}>{{ "simuliert" if sim_active else "Echtzeit" }}</dd></div>
+                            <dd {% if sim_active or uhr_synchron is false %}class="status-warn"{% endif %}>
+                                {% if sim_active %}simuliert
+                                {%- elif uhr_synchron is false %}nicht gestellt
+                                {%- else %}Echtzeit{% endif %}</dd></div>
                         <div><dt>Display</dt>
                             <dd {% if test_laeuft %}class="status-warn"{% endif %}>{% if test_laeuft %}Testlauf{% else %}{{ "an" if conf.get('DISPLAY_ACTIVE', True) else "aus" }}{% endif %}</dd></div>
                     </div>

@@ -19,7 +19,8 @@ from .konstanten import (DEFAULT_DAY_END, DEFAULT_DAY_START,
                          MIN_UPDATE_SECONDS, PROJEKT_VERZEICHNIS,
                          ROOM_NAME_MAX_LEN, SCHEDULE_MAX_BREAKS,
                          SCHEDULE_MAX_LESSONS, SCHEDULE_NAME_MAX_LEN,
-                         SIMULATION_MAX_SECONDS)
+                         SIMULATION_MAX_SECONDS, TIMESYNC_MARKE,
+                         TIMESYNC_VERZEICHNIS)
 from .zustand import app_state
 
 # Die Konfigurationsdatei liegt im Projektverzeichnis, nicht im Paket.
@@ -71,6 +72,34 @@ def save_config(config: Dict[str, Any]) -> None:
             app_state.last_config_mtime = 0 
         except Exception as e:
             logging.error(f"FEHLER beim Speichern der config.json: {e}")
+
+def uhr_synchronisiert() -> Optional[bool]:
+    """
+    Sagt, ob die Systemuhr seit dem Start einmal gestellt wurde.
+
+    WARUM DAS UEBERHAUPT EINE FRAGE IST:
+    Der Raspberry Pi Zero 2 W hat keine Echtzeituhr. Nach einem Stromausfall
+    beginnt er mit der zuletzt gespeicherten Zeit. Solange kein Netz da ist,
+    faellt das nicht weiter auf - das Schild zeigt ohnehin "Kein WLAN/Internet".
+    Gefaehrlich wird der andere Fall: Netz da, NTP aber blockiert. Dann
+    antwortet WebUntis bereitwillig, gefragt wird es nur nach dem falschen Tag,
+    und auf dem Schild steht ein vollkommen plausibler Plan von gestern.
+
+    DREI ANTWORTEN, NICHT ZWEI:
+      True  - die Uhr wurde gestellt
+      False - systemd-timesyncd laeuft, hat die Uhr aber noch nicht gestellt
+      None  - nicht feststellbar (anderer Zeitdienst wie chrony, kein systemd,
+              Entwicklungsrechner)
+
+    Das None ist der Grund fuer die Unterscheidung. Ohne sie muesste "Datei
+    fehlt" als "Uhr ist falsch" gelten - und jede Anlage, die ihre Zeit nicht
+    ueber timesyncd holt, bekaeme dauerhaft eine Warnung, die nicht stimmt.
+    Eine Warnung, die immer dasteht, liest nach drei Tagen niemand mehr.
+    """
+    if not os.path.isdir(TIMESYNC_VERZEICHNIS):
+        return None
+    return os.path.exists(TIMESYNC_MARKE)
+
 
 def get_update_interval(conf: Dict[str, Any]) -> int:
     """
