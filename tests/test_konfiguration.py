@@ -156,3 +156,52 @@ def test_loopback_antwort_wird_zu_none(monkeypatch):
 
     monkeypatch.setattr(socket, "socket", lambda *a, **k: Attrappe())
     assert R.get_local_ip() is None
+
+
+# ==============================================================================
+# Rechte der Konfigurationsdatei
+# ==============================================================================
+def test_das_speichern_engt_die_dateirechte_ein(tmp_path):
+    """
+    Die Installationsanleitung laesst 'chmod 600 config.json' ausfuehren - in der
+    Datei stehen das WebUntis-Passwort der Schule und der Admin-Zugang.
+
+    Dass ein Speichern ueber das Web-Interface diese Beschraenkung nicht wieder
+    aufhebt, ist bisher ein Zufall: save_config schreibt ueber tempfile.mkstemp,
+    und das legt mit 0600 an; os.replace behaelt die Rechte der Quelldatei bei.
+    Wuerde daraus irgendwann ein schlichtes open(), waere die dokumentierte
+    Beschraenkung beim naechsten Speichern still verschwunden - samt Passwort,
+    lesbar fuer jeden lokalen Dienst.
+
+    Geprueft wird die schaerfere Zusicherung: Das Speichern ENGT die Rechte ein,
+    auch wenn die Datei vorher offener war.
+    """
+    import stat
+
+    pfad = tmp_path / "config.json"
+    pfad.write_text("{}", encoding="utf-8")
+    pfad.chmod(0o644)
+    konfiguration.CONFIG_FILE = str(pfad)
+
+    konfiguration.save_config({"UNTIS_PASS": "geheim"})
+
+    modus = stat.S_IMODE(pfad.stat().st_mode)
+    assert modus & 0o077 == 0, (
+        f"config.json steht nach dem Speichern auf {oct(modus)} - "
+        "Gruppe oder andere duerfen das WebUntis-Passwort lesen")
+
+
+def test_das_gespeicherte_passwort_steht_auch_wirklich_drin(tmp_path):
+    """
+    Gegenprobe: Der Test darueber bestuende auch, wenn save_config gar nichts
+    schriebe - die Rechte einer unveraenderten Datei waeren ja unauffaellig.
+    """
+    import json
+
+    pfad = tmp_path / "config.json"
+    pfad.write_text("{}", encoding="utf-8")
+    konfiguration.CONFIG_FILE = str(pfad)
+
+    konfiguration.save_config({"UNTIS_PASS": "geheim"})
+
+    assert json.loads(pfad.read_text(encoding="utf-8")) == {"UNTIS_PASS": "geheim"}

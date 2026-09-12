@@ -9,6 +9,8 @@ import base64
 import statistics
 import time
 
+import pytest
+
 import tuerschild as R
 from tuerschild import web
 from conftest import uhrzeit
@@ -133,6 +135,103 @@ def test_csrf_token_wird_zeitkonstant_verglichen(webclient, monkeypatch):
     # Aufruf, an dem der CSRF-Token beteiligt war.
     assert any(R.app_state.csrf_token in paar for paar in aufrufe), \
         "Der CSRF-Token wurde nicht mit compare_digest verglichen"
+
+
+def alle_routen():
+    """
+    Jede Route der Anwendung, ausser dem statischen Dateiausgang von Flask.
+
+    Die Tests darunter gehen diese Liste durch, statt einzelne Pfade
+    aufzuzaehlen. Der Unterschied zaehlt beim NAECHSTEN Knopf: Eine aufgezaehlte
+    Liste waechst nicht mit, eine durchlaufene schon.
+    """
+    for regel in R.app.url_map.iter_rules():
+        if regel.endpoint == "static":
+            continue
+        assert not regel.arguments, (
+            f"{regel.rule} hat Plat" "zhalter im Pfad - dieser Test muss dafuer "
+            "erweitert werden, sonst prueft er die Route stillschweigend nicht")
+        yield regel
+
+
+@pytest.fixture
+def ohne_nebenwirkungen(monkeypatch):
+    """
+    SICHERHEITSNETZ fuer die beiden Vollstaendigkeitstests darunter.
+
+    Sie pruefen, ob sich Routen ohne Anmeldung oder ohne CSRF-Token ausloesen
+    lassen. Faellt einer dieser Schutzschilde weg, laeuft der Rumpf der Route
+    aber wirklich - und hinter /sys_shutdown steht ein poweroff. Auf dem
+    Raspberry Pi laesst update.sh diese Testsuite laufen, und dort ist die
+    Sudoers-Regel dafuer eingerichtet: Der Test wuerde also genau dann das
+    Geraet abschalten, wenn er einen Fehler findet.
+
+    Ein blosses Ersetzen von subprocess.Popen genuegt nicht - der Aufruf
+    passiert in einem Thread nach 2,5 Sekunden Wartezeit, also womoeglich erst,
+    wenn der Test schon vorbei und die Ersetzung zurueckgenommen ist. Deshalb
+    wird der Thread selbst ersetzt: Er wird gar nicht erst gestartet.
+    """
+    gestartet = []
+
+    class Scheinthread:
+        def __init__(self, *args, **kwargs):
+            gestartet.append(kwargs.get("target"))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(web.threading, "Thread", Scheinthread)
+    monkeypatch.setattr(web.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail(f"Systembefehl ausgefuehrt: {a}"))
+    return gestartet
+
+
+def test_keine_route_ist_ohne_anmeldung_erreichbar(webclient, ohne_nebenwirkungen):
+    """
+    Heute tragen alle Routen @requires_auth. Nichts hindert die naechste daran,
+    es zu vergessen - und auffallen wuerde es nicht, denn die Seite
+    funktioniert ja, sie steht nur offen.
+    """
+    client, _ = webclient
+    for regel in alle_routen():
+        methode = "POST" if "POST" in regel.methods else "GET"
+        # Die Fehlversuchsliste vor jeder Route leeren: Sonst sperrt der
+        # Ratenbegrenzer nach der fuenften Route die eigene Adresse, und alle
+        # weiteren bekaemen 429 - ohne dass ihre Anmeldepruefung je erreicht
+        # wuerde. Der Test saehe weiterhin gruen aus und pruefte nichts mehr.
+        with R.app_state.state_lock:
+            R.app_state.failed_logins.clear()
+
+        antwort = client.open(regel.rule, method=methode)
+
+        assert antwort.status_code == 401, (
+            f"{regel.rule} antwortet ohne Zugangsdaten mit {antwort.status_code} "
+            "statt 401 - fehlt dort @requires_auth?")
+
+
+def test_jede_schreibende_route_verlangt_den_csrf_token(webclient, ohne_nebenwirkungen):
+    """
+    Ohne diesen Schutz genuegt ein praeparierter Link in einer Mail, den eine
+    angemeldete Lehrkraft anklickt, um das Schild abzuschalten oder den Pi
+    herunterzufahren.
+    """
+    client, kopf = webclient
+    geprueft = 0
+    for regel in alle_routen():
+        if "POST" not in regel.methods:
+            continue
+        geprueft += 1
+
+        antwort = client.post(regel.rule, headers=kopf)
+
+        assert antwort.status_code == 403, (
+            f"{regel.rule} laesst sich ohne CSRF-Token ausloesen "
+            f"({antwort.status_code}) - fehlt dort @verify_csrf?")
+
+    assert geprueft >= 8, \
+        f"Nur {geprueft} schreibende Routen gefunden - wird wirklich alles durchlaufen?"
+    assert not ohne_nebenwirkungen, \
+        "Eine Route hat trotz fehlendem Token einen Hintergrundvorgang gestartet"
 
 
 def test_systembefehle_sind_ebenfalls_geschuetzt(webclient):
