@@ -7,6 +7,10 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
+# Messdateien der Testabdeckung (coverage)
+.coverage
+htmlcov/
+
 # Virtuelle Umgebung
 webuntis/
 venv/
