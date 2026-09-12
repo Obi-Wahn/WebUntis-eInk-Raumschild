@@ -127,6 +127,51 @@ def pruefe_raumname(wert: Any) -> Tuple[Optional[str], Optional[str]]:
     return name, None
 
 
+def pruefe_intervall(wert: Any) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Prueft das Abrufintervall aus dem Formular.
+
+    WARUM DIE PRUEFUNG NOETIG IST - UND NICHT NUR DIE BEGRENZUNG:
+    Frueher stand an der aufrufenden Stelle ein 'except Exception: pass'. Eine
+    unbrauchbare Eingabe wurde damit stillschweigend verworfen, eine zu kurze
+    stillschweigend hochgesetzt - und die Seite meldete in beiden Faellen
+    "Einstellungen gespeichert.". Wer das Intervall verstellt und eine
+    Bestaetigung liest, geht davon aus, dass sein Wert gilt. Der verworfene
+    Wert ist dabei das kleinere Problem; die falsche Bestaetigung darueber ist
+    das groessere.
+
+    WARUM ABGELEHNT UND NICHT ZURECHTGEBOGEN:
+    get_update_interval() begrenzt den Wert beim Lesen weiterhin - das ist die
+    Absicherung fuer eine von Hand bearbeitete config.json, die an keinem
+    Formular vorbeikommt. Hier dagegen sitzt jemand davor, der eine Antwort
+    bekommen kann. Ein Wert, der klammheimlich zu etwas anderem wird, ist fuer
+    ihn nicht von einem uebernommenen Wert zu unterscheiden.
+    """
+    if wert is None:
+        return None, "Das Abrufintervall fehlt in der Anfrage."
+
+    text = str(wert).strip()
+    if not text:
+        return None, "Das Abrufintervall darf nicht leer sein."
+
+    try:
+        sekunden = int(text)
+    except ValueError:
+        return None, (f"'{text}' ist keine ganze Zahl. Das Abrufintervall wird "
+                      "in Sekunden angegeben.")
+
+    if sekunden < MIN_UPDATE_SECONDS:
+        return None, (f"Das Abrufintervall ist zu kurz (mindestens "
+                      f"{MIN_UPDATE_SECONDS} Sekunden, eingegeben: {sekunden}). "
+                      "Kuerzere Abstaende belasten den WebUntis-Server unnötig.")
+    if sekunden > MAX_UPDATE_SECONDS:
+        return None, (f"Das Abrufintervall ist zu lang (höchstens "
+                      f"{MAX_UPDATE_SECONDS} Sekunden, eingegeben: {sekunden}). "
+                      "Das Schild würde Änderungen zu spät übernehmen.")
+
+    return sekunden, None
+
+
 def _pruefe_uhrzeit(wert: Any, wo: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Prueft eine einzelne Uhrzeit. Verlangt wird genau die Form "HH:MM".

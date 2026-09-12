@@ -244,14 +244,31 @@ def test_systembefehle_sind_ebenfalls_geschuetzt(webclient):
 # ==============================================================================
 # Einstellungen speichern
 # ==============================================================================
-def test_intervall_wird_beim_speichern_begrenzt(webclient):
+def test_zu_kurzes_intervall_wird_abgelehnt_statt_zurechtgebogen(webclient):
+    """
+    Frueher wurde ein zu kurzer Wert stillschweigend auf MIN_UPDATE_SECONDS
+    hochgesetzt und die Seite meldete "Einstellungen gespeichert.". Wer 5
+    eingab und eine Bestaetigung las, hatte in Wahrheit 300 - und keinen
+    Hinweis darauf.
+
+    Die Begrenzung beim LESEN bleibt bestehen (tests/test_konfiguration.py):
+    Sie ist die Absicherung fuer eine von Hand bearbeitete config.json, die an
+    keinem Formular vorbeikommt.
+    """
     client, kopf = webclient
+    vorher = R.get_cached_config()["AUTO_UPDATE_SECONDS"]
+
     client.post("/save", headers=kopf, data={
         "csrf_token": R.app_state.csrf_token,
         "ROOM_NAME": "Raum101",
         "AUTO_UPDATE_SECONDS": "5",
     })
-    assert R.get_cached_config()["AUTO_UPDATE_SECONDS"] == R.MIN_UPDATE_SECONDS
+
+    assert R.get_cached_config()["AUTO_UPDATE_SECONDS"] == vorher
+    seite = client.get("/", headers=kopf).get_data(as_text=True)
+    assert "Nicht gespeichert" in seite
+    assert str(R.MIN_UPDATE_SECONDS) in seite, \
+        "Die Meldung nennt den erlaubten Mindestwert nicht"
 
 
 def test_raumname_wird_uebernommen(webclient):
