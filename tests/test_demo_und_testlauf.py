@@ -9,13 +9,16 @@ Bis hierher war keine der beiden Funktionen von einem Test beruehrt. Das faellt
 nicht auf, weil beide nur auf Knopfdruck laufen - und wer sie drueckt, sieht
 zwar ein Bild, aber nicht, ob es das richtige ist.
 """
+import datetime
 import re
 
 import pytest
 
 import tuerschild as R
 from tuerschild import steuerung
+from tuerschild.konstanten import PRUEFUNG_KLASSENARBEIT
 from tuerschild.zustand import Lesson
+from conftest import MONTAG
 
 
 # ==============================================================================
@@ -178,3 +181,164 @@ def test_ohne_testlauf_steht_dort_der_zustand_des_displays(webclient):
     wert = displayzeile(client.get("/", headers=kopf).get_data(as_text=True))
 
     assert wert in ("an", "aus")
+
+
+# ==============================================================================
+# Echte Namen im Testlauf
+# ==============================================================================
+# Die Zustaende bleiben fest - ein gewoehnlicher Schultag enthaelt weder Ausfall
+# noch Vertretung noch Klassenarbeit, und wer den Knopf drueckt, um genau die zu
+# pruefen, saehe sonst sechsmal gewoehnlichen Unterricht. Die NAMEN dagegen
+# sollen echt sein: Ihre Laenge entscheidet darueber, wo gekuerzt wird, und mit
+# erfundenen Namen sieht man die eigene engste Stelle nie.
+def plan_mit(*faecher):
+    """Ein Tagesplan aus TimedLesson-Eintraegen mit den genannten Faechern."""
+    from tuerschild.zustand import TimedLesson
+    eintraege = []
+    for nummer, fach in enumerate(faecher):
+        beginn = datetime.datetime.combine(MONTAG, datetime.time(8 + nummer, 0))
+        stunde = Lesson(fach[:2], fach, "Ab", "9B",
+                        f"{beginn:%H:%M} - {beginn.hour:02d}:45",
+                        f"{nummer + 1}. Std.", None, "")
+        eintraege.append(TimedLesson(start=beginn,
+                                     end=beginn + datetime.timedelta(minutes=45),
+                                     lesson=stunde))
+    return eintraege
+
+
+def faecher_im_testlauf(szenarien):
+    return {s[0]["current"].fach_lang for s in szenarien if s[0]}
+
+
+def test_der_testlauf_benutzt_echte_fachnamen():
+    szenarien = steuerung.testlauf_szenarien(plan_mit("Mathematik", "Kunst"))
+
+    assert faecher_im_testlauf(szenarien) == {"Mathematik"}, \
+        "Der Testlauf zeigt erfundene Faecher, obwohl ein Tagesplan vorliegt"
+
+
+def test_gewaehlt_wird_der_laengste_fachname():
+    """
+    Neben dem Etikett wird der Platz knapp. Die engste Stelle zeigt sich nur am
+    laengsten Namen - einen kurzen zu nehmen hiesse, die Pruefung zu verfehlen.
+    """
+    szenarien = steuerung.testlauf_szenarien(
+        plan_mit("Kunst", "Naturwissenschaften", "Sport"))
+
+    assert faecher_im_testlauf(szenarien) == {"Naturwissenschaften"}
+
+
+def test_der_danach_block_zeigt_eine_andere_stunde():
+    """
+    Nimmt der Testlauf zweimal dieselbe Stunde, steht dasselbe Fach unter JETZT
+    und DANACH - das sieht nach einem Fehler aus und prueft ausserdem nur eine
+    Namenslaenge statt zweier.
+    """
+    szenarien = steuerung.testlauf_szenarien(plan_mit("Naturwissenschaften", "Kunst"))
+    mit_folgestunde = [s[0] for s in szenarien if s[0] and s[0]["next"]]
+
+    assert mit_folgestunde
+    for daten in mit_folgestunde:
+        assert daten["next"].fach_lang != daten["current"].fach_lang
+
+
+def test_ohne_tagesplan_greifen_die_ersatzstunden():
+    """
+    Beim Aufhaengen gibt es noch keinen Plan - genau dann wird der Knopf aber
+    gebraucht. Er muss auch ohne Netz und ohne Ruecklage etwas zeigen.
+    """
+    szenarien = steuerung.testlauf_szenarien(None)
+
+    assert faecher_im_testlauf(szenarien) == {steuerung.ERSATZSTUNDE_JETZT.fach_lang}
+
+
+def test_ein_leerer_tagesplan_zaehlt_wie_keiner():
+    szenarien = steuerung.testlauf_szenarien([])
+
+    assert faecher_im_testlauf(szenarien) == {steuerung.ERSATZSTUNDE_JETZT.fach_lang}
+
+
+def test_die_ersatzstunde_zeigt_die_kuerzung_auch_ohne_echte_daten():
+    """
+    Der Sinn der Ersatzstunde ist nicht, irgendetwas zu zeigen, sondern die
+    engste Stelle: Fachname neben dem breitesten Etikett. Passt ihr Name dort
+    bequem hinein, bleibt genau der Fall ungezeigt, fuer den der Knopf gedrueckt
+    wird - und zwar unbemerkt, denn zu sehen ist ja ein sauberes Bild.
+    """
+    from PIL import Image, ImageDraw
+    from tuerschild.anzeige import get_text_width
+    from tuerschild.konstanten import (UI_BADGE_GAP, UI_BADGE_PADDING,
+                                       UI_MARGIN, UI_WIDTH)
+
+    R.init_fonts()
+    flaeche = ImageDraw.Draw(Image.new("1", (UI_WIDTH, R.UI_HEIGHT), 255))
+    etikett = get_text_width(flaeche, PRUEFUNG_KLASSENARBEIT,
+                             R.app_state.global_fonts["small"])
+    platz = (UI_WIDTH - UI_MARGIN
+             - (UI_MARGIN + etikett + 2 * UI_BADGE_PADDING + UI_BADGE_GAP))
+    breite = get_text_width(flaeche, steuerung.ERSATZSTUNDE_JETZT.fach_lang,
+                            R.app_state.global_fonts["reg"])
+
+    assert breite > platz, (
+        f"'{steuerung.ERSATZSTUNDE_JETZT.fach_lang}' braucht {breite} px und "
+        f"passt damit in die {platz} px neben dem Etikett - die Kuerzung "
+        f"kommt im Testlauf ohne echte Daten gar nicht vor")
+
+
+def test_die_sonderfaelle_bleiben_auch_mit_echten_namen():
+    """
+    Der eigentliche Zweck des Knopfes darf durch die echten Namen nicht
+    verlorengehen.
+    """
+    szenarien = steuerung.testlauf_szenarien(plan_mit("Mathematik", "Kunst"))
+    zustaende = [s[0]["current"].status_code for s in szenarien if s[0]]
+    etiketten = [s[0]["current"].pruefung for s in szenarien if s[0]]
+
+    assert None in zustaende
+    assert "cancelled" in zustaende
+    assert "irregular" in zustaende
+    assert PRUEFUNG_KLASSENARBEIT in etiketten
+    assert any(s[0] and s[0]["next"] is None for s in szenarien)
+
+
+def test_jedes_szenario_traegt_eine_bemerkung():
+    """
+    Echte Stunden haben meistens gar keine Bemerkung. Uebernaehme der Testlauf
+    auch die, bliebe die Detailzeile mit ihrer gestaffelten Kuerzung ungeprueft.
+    """
+    szenarien = steuerung.testlauf_szenarien(plan_mit("Mathematik", "Kunst"))
+
+    assert all(s[0]["current"].stunden_info for s in szenarien if s[0])
+
+
+def test_die_klassenarbeit_steht_neben_dem_laengsten_fach():
+    """
+    "KLASSENARBEIT" ist das breiteste Etikett und laesst dem Fachnamen am
+    wenigsten Platz. Diese Kombination ist die engste, die das Schild zeigen
+    kann - sie gehoert in den Testlauf, nicht in den Betrieb.
+    """
+    szenarien = steuerung.testlauf_szenarien(plan_mit("Naturwissenschaften"))
+    arbeit = [s[0]["current"] for s in szenarien
+              if s[0] and s[0]["current"].pruefung]
+
+    assert len(arbeit) == 1
+    assert arbeit[0].fach_lang == "Naturwissenschaften"
+    assert arbeit[0].status_code is None, \
+        "Ein Ausfall wuerde das Klassenarbeits-Etikett verdraengen"
+
+
+def test_der_lauf_nimmt_den_plan_aus_der_ruecklage(monkeypatch):
+    """
+    Ohne diese Verbindung liefe der Testlauf zwar, zeigte aber weiterhin
+    erfundene Namen - und niemand haette es bemerkt.
+    """
+    gesehen = []
+    monkeypatch.setattr(steuerung, "update_display_logic",
+                        lambda data, msg, conf: gesehen.append(data))
+    monkeypatch.setattr(R.app_state.shutdown_event, "wait", lambda _s: False)
+    R.app_state.cached_lessons = plan_mit("Naturwissenschaften")
+
+    steuerung.run_display_test_sequence()
+
+    assert any(d and d["current"].fach_lang == "Naturwissenschaften"
+               for d in gesehen)
