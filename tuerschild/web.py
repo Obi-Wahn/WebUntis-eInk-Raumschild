@@ -23,9 +23,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .anzeige import sichtbare_raumzeichen, zeichne_anzeige
 from .konfiguration import (formatiere_dauer, get_cached_config, get_now,
-                            get_update_interval, pruefe_raumname, save_config)
-from .konstanten import (DEFAULT_UPDATE_SECONDS, FAILED_LOGIN_MAX,
-                         FAILED_LOGIN_TTL, LOGIN_LOCKOUT_SECONDS,
+                            get_update_interval, pruefe_intervall,
+                            pruefe_raumname, save_config)
+from .konstanten import (FAILED_LOGIN_MAX, FAILED_LOGIN_TTL,
+                         LOGIN_LOCKOUT_SECONDS,
                          MAX_LOGIN_ATTEMPTS, MAX_UPDATE_SECONDS,
                          MIN_UPDATE_SECONDS, ROOM_NAME_MAX_LEN,
                          STALE_ALERT_SECONDS, TRUSTED_PROXIES,
@@ -408,6 +409,20 @@ def reset_time():
         app_state.force_update_flag = True
     return redirect('/')
 
+def _speichern_abgelehnt(fehler: str):
+    """
+    Lehnt das Formular ab: Grund ins Protokoll, Grund auf die Seite, zurueck.
+
+    Als eigene Funktion, damit jede gepruefte Angabe auf demselben Weg abgelehnt
+    wird. Eine zweite, leicht abweichende Kopie waere genau die Stelle, an der
+    spaeter das Protokollieren oder die Anzeige des Grundes fehlt.
+    """
+    logging.warning(f"Speichern abgelehnt: {fehler}")
+    with app_state.state_lock:
+        app_state.save_error = fehler
+    return redirect('/')
+
+
 @app.route('/save', methods=['POST'])
 @requires_auth
 @verify_csrf
@@ -422,6 +437,12 @@ def save():
     ALLES ODER NICHTS: Wird eine Angabe abgelehnt, wird gar nichts gespeichert.
     Ein halb uebernommenes Formular waere schlimmer als ein abgelehntes -
     niemand wuesste, welcher Stand nun in der Datei steht.
+
+    Getragen wird das heute davon, dass get_cached_config() eine Kopie
+    herausgibt: Bis save_config() laeuft, aendert eine Zuweisung an conf gar
+    nichts. Dass hier trotzdem erst beide Angaben geprueft und danach beide
+    uebernommen werden, ist Vorsorge und keine Fehlerbehebung - die Reihenfolge
+    soll auch dann noch stimmen, wenn jemand spaeter frueher schreibt.
     """
     conf = get_cached_config()
     if not conf:
@@ -429,17 +450,14 @@ def save():
 
     raumname, fehler = pruefe_raumname(request.form.get('ROOM_NAME'))
     if fehler:
-        logging.warning(f"Speichern abgelehnt: {fehler}")
-        with app_state.state_lock:
-            app_state.save_error = fehler
-        return redirect('/')
+        return _speichern_abgelehnt(fehler)
+
+    intervall, fehler = pruefe_intervall(request.form.get('AUTO_UPDATE_SECONDS'))
+    if fehler:
+        return _speichern_abgelehnt(fehler)
 
     conf['ROOM_NAME'] = raumname
-    try:
-        val = int(request.form.get('AUTO_UPDATE_SECONDS', DEFAULT_UPDATE_SECONDS))
-        conf['AUTO_UPDATE_SECONDS'] = max(MIN_UPDATE_SECONDS, min(val, MAX_UPDATE_SECONDS))
-    except Exception:
-        pass
+    conf['AUTO_UPDATE_SECONDS'] = intervall
 
     save_config(conf)
     with app_state.state_lock:

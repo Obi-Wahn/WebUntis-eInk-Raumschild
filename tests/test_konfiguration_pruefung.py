@@ -222,3 +222,99 @@ def test_ueberzaehlige_felder_in_einer_stunde_werden_verworfen():
     ergebnis, _ = K.pruefe_stundenplan(plan(LESSONS=[
         {"start": "08:00", "end": "08:45", "name": "1. Std.", "raum": "unerwartet"}]))
     assert set(ergebnis["LESSONS"][0]) == {"start", "end", "name"}
+
+
+# ==============================================================================
+# pruefe_intervall: das Abrufintervall aus dem Formular
+# ==============================================================================
+def test_gueltiges_intervall_kommt_als_zahl_zurueck():
+    """
+    Aus dem Formular kommt Text. Wuerde er als Text weitergereicht, stuende in
+    der config.json "900" statt 900 - und der Vergleich in der Schleife
+    (now - last_update >= intervall) verglichen Zahl mit Text.
+    """
+    wert, fehler = K.pruefe_intervall("900")
+    assert fehler is None
+    assert wert == 900 and isinstance(wert, int)
+
+
+def test_intervall_mit_leerzeichen_wird_angenommen():
+    wert, fehler = K.pruefe_intervall("  900  ")
+    assert fehler is None and wert == 900
+
+
+@pytest.mark.parametrize("eingabe", ["abc", "15 Minuten", "900.0", "0x10", "1e3"])
+def test_unbrauchbare_eingabe_wird_mit_grund_abgelehnt(eingabe):
+    """
+    Frueher stand an der aufrufenden Stelle ein 'except Exception: pass'. Der
+    Wert wurde verworfen, die Seite meldete trotzdem Erfolg.
+    """
+    wert, fehler = K.pruefe_intervall(eingabe)
+    assert wert is None
+    assert fehler, f"{eingabe!r} wurde ohne Begruendung abgelehnt"
+    assert eingabe in fehler, "Die Meldung nennt die abgelehnte Eingabe nicht"
+
+
+@pytest.mark.parametrize("eingabe", ["", "   "])
+def test_ein_leeres_feld_wird_als_leer_benannt(eingabe):
+    """
+    Die Meldung ist hier die ganze Zusicherung, nicht die Ablehnung: int("")
+    scheitert ohnehin, das Feld waere also auch ohne eigene Pruefung abgelehnt
+    worden - nur mit der Begruendung "'' ist keine ganze Zahl", die niemandem
+    weiterhilft. Ein Mutationstest hat gezeigt, dass genau diese Zeile
+    ersatzlos entfallen koennte, ohne dass ein Test es merkt.
+    """
+    wert, fehler = K.pruefe_intervall(eingabe)
+    assert wert is None
+    assert "leer" in fehler, f"Unpassende Begruendung: {fehler!r}"
+
+
+def test_fehlende_angabe_wird_als_fehlend_benannt():
+    """
+    Auch hier zaehlt die Begruendung: Ohne eigene Pruefung liefe None in
+    str(None) und die Meldung lautete "'None' ist keine ganze Zahl." - eine
+    Eingabe, die niemand gemacht hat.
+    """
+    wert, fehler = K.pruefe_intervall(None)
+    assert wert is None
+    assert "fehlt" in fehler, f"Unpassende Begruendung: {fehler!r}"
+
+
+@pytest.mark.parametrize("eingabe", ["5", "60", "299", "-1", "0"])
+def test_zu_kurzes_intervall_wird_abgelehnt(eingabe):
+    """
+    Nicht hochgesetzt, sondern abgelehnt: Ein Wert, der klammheimlich zu einem
+    anderen wird, ist von einem uebernommenen Wert nicht zu unterscheiden.
+    """
+    wert, fehler = K.pruefe_intervall(eingabe)
+    assert wert is None
+    assert str(K.MIN_UPDATE_SECONDS) in fehler, \
+        "Die Meldung nennt den erlaubten Mindestwert nicht"
+
+
+def test_zu_langes_intervall_wird_abgelehnt():
+    wert, fehler = K.pruefe_intervall(str(K.MAX_UPDATE_SECONDS + 1))
+    assert wert is None
+    assert str(K.MAX_UPDATE_SECONDS) in fehler
+
+
+@pytest.mark.parametrize("eingabe,erwartet", [
+    (str(K.MIN_UPDATE_SECONDS), K.MIN_UPDATE_SECONDS),
+    (str(K.MAX_UPDATE_SECONDS), K.MAX_UPDATE_SECONDS),
+])
+def test_die_grenzwerte_selbst_sind_erlaubt(eingabe, erwartet):
+    """
+    Ein Fehler um eins waere hier besonders aergerlich: Die Seite bietet den
+    Mindestwert selbst als erlaubt an ("Intervall (Sekunden, mind. 300)").
+    """
+    wert, fehler = K.pruefe_intervall(eingabe)
+    assert fehler is None and wert == erwartet
+
+
+def test_eine_zahl_wird_auch_als_zahl_angenommen():
+    """
+    Aus dem Formular kommt Text, aus einer von Hand bearbeiteten Datei aber
+    eine Zahl. Die Pruefung soll beides annehmen.
+    """
+    wert, fehler = K.pruefe_intervall(1800)
+    assert fehler is None and wert == 1800

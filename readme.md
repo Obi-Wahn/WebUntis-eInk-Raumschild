@@ -101,6 +101,8 @@ Das Programm erfordert eine Konfigurationsdatei namens `config.json` im Hauptver
 
 `WEB_HOST` legt fest, worauf der Webserver lauscht — voreingestellt nur auf dem Raspberry Pi selbst, weil der Zugriff von außen über den Reverse Proxy läuft. `WEB_PUBLIC_URL` überschreibt die Adresse, die beim Start ins Protokoll geschrieben wird; leer bedeutet, dass sie aus der Netzwerkadresse des Geräts gebildet wird. Beides ist in der [Installationsanleitung](./Installationsanleitung.md), Schritt 7, näher beschrieben.
 
+`AUTO_UPDATE_SECONDS` ist der Abstand zwischen zwei WebUntis-Abrufen; erlaubt sind 300 bis 86400 Sekunden. Im Web-Interface wird ein Wert außerhalb dieser Grenzen mit Begründung abgelehnt — dort sitzt jemand davor, der eine Antwort bekommen kann. Beim Einlesen der Datei wird er dagegen stillschweigend auf die Grenze gesetzt: Eine von Hand bearbeitete `config.json` kommt an keinem Formular vorbei, und ein Schild, das wegen einer zu klein geratenen Zahl gar nicht erst startet, wäre die schlechtere Lösung.
+
 `SCHEDULE` enthält **keine Plandaten.** Der Unterricht kommt ausschließlich aus WebUntis, und dieses Gerät schreibt dorthin nie zurück. Hier steht nur, wie das Schild die Zeiten des Hauses benennt: dass `"08:00"` die *1. Std.* ist und dass zwischen 13:20 und 13:55 „Mittagspause" statt „Raum ist frei" angezeigt wird. Diese Werte werden bei der Einrichtung einmal eingetragen und danach kaum wieder angefasst; das Web-Interface bearbeitet sie deshalb bewusst nicht — es bleibt Steuerung und Anzeige.
 
 Damit ein Tippfehler in dieser Datei nicht unbemerkt bleibt, wird sie beim Einlesen geprüft. Ein Fehler landet als Warnung im Protokoll (`journalctl -u raumanzeige`), etwa:
