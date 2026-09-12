@@ -22,6 +22,28 @@ from .konstanten import (BACKGROUND_ERROR_PAUSE, STALE_ALERT_SECONDS,
 from .untis import get_current_lesson, get_offline_fallback
 from .zustand import Lesson, app_state
 
+def demo_daten():
+    """
+    Ein gewoehnlicher Schultag, wie ihn das Schild im Regelfall zeigt.
+
+    WOFUER: Der Knopf "Lokale Dummy-Daten laden" beantwortet die Frage "wie
+    sieht das Schild mit Daten aus?" - etwa beim Aufhaengen, bevor WebUntis
+    ueberhaupt erreichbar ist.
+
+    WARUM GEWOEHNLICHER UNTERRICHT: Frueher stand hier eine Vertretung. Wer
+    den Knopf drueckt, um den Regelfall zu sehen, bekam dann ein Schild mit
+    Etikett zu sehen und haette den Alltag nie zu Gesicht bekommen. Die
+    Sonderfaelle - Ausfall, Vertretung, Ferien, kein Netz - spielt der
+    Testlauf ohnehin nacheinander durch.
+    """
+    return {
+        "current": Lesson("Informatik", "Informatik", "Ab", "11B",
+                          "09:55 - 10:40", "3. Std.", None,
+                          "Theorieunterricht - Netzwerktechnik"),
+        "next": Lesson("Geschichte", "Geschichte", "Cd", "9B",
+                       "10:45 - 11:30", "4. Std.", None, ""),
+    }
+
 def run_display_test_sequence() -> None:
     """
     Spielt hardcodierte Test-Szenarien nacheinander auf dem Hardware-Display ab.
@@ -49,11 +71,17 @@ def run_display_test_sequence() -> None:
         ( None, "Kein WLAN/Internet" )
     ]
     
-    for idx, (data, msg) in enumerate(test_cases):
+    for data, msg in test_cases:
         if app_state.shutdown_event.is_set(): break
+        # Dieselbe Meldung wie auf dem Display, nicht der Fortschritt des
+        # Testlaufs: Die Web-Vorschau liest genau dieses Feld und verspricht
+        # darunter "genau das steht auf dem Schild". Frueher stand dort
+        # "TESTLAUF (3/6)...", waehrend das Panel etwas ganz anderes zeigte -
+        # ausgerechnet in dem Moment, in dem jemand die Darstellung prueft.
+        # Dass ein Testlauf laeuft, sagt die Statusliste (test_mode_active).
         with app_state.state_lock:
             app_state.current_display_data = data
-            app_state.current_display_msg = f"TESTLAUF ({idx+1}/{len(test_cases)})..."
+            app_state.current_display_msg = msg
         
         update_display_logic(data, msg, conf)
         # .wait() statt sleep() nutzen, um den Vorgang bei einem Shutdown abbrechen zu können
@@ -209,10 +237,7 @@ def background_loop() -> None:
                     is_stale = False
 
                     if current_show_demo:
-                        data = {
-                            "current": Lesson("Informatik", "Informatik", "Ab", "11B", "09:55 - 10:40", "3. Std.", "irregular", "Theorieunterricht - Netzwerktechnik"),
-                            "next": Lesson("Geschichte", "Geschichte", "Cd", "9B", "10:45 - 11:30", "4. Std.", None, "")
-                        }
+                        data = demo_daten()
                         err = ""
                         with app_state.state_lock:
                             app_state.show_demo_once = False

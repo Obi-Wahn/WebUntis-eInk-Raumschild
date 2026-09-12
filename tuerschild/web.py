@@ -246,6 +246,7 @@ def index():
         is_simulated = app_state.simulated_datetime is not None
         d_data = app_state.current_display_data
         d_msg_raw = app_state.current_display_msg
+        test_laeuft = app_state.test_mode_active
         c_token = app_state.csrf_token
         is_stale = app_state.data_is_stale
         sync_dt = app_state.last_successful_sync
@@ -280,6 +281,11 @@ def index():
         beschreibung=vorschau_beschreibung(d_data, d_msg_raw),
         now=display_time,
         sim_active=is_simulated,
+        # Waehrend des Testlaufs zeigt die Vorschau die Testbilder - sie ist
+        # also echt, aber sie zeigt nicht den Betrieb. Ohne diesen Hinweis
+        # koennte jemand einen Ausfall fuer echt halten, den gerade der
+        # Testlauf durchspielt.
+        test_laeuft=test_laeuft,
         csrf_token=c_token,
         stale=is_stale,
         last_sync=last_sync,

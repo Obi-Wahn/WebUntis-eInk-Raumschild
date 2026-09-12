@@ -354,7 +354,7 @@
                         <div><dt>Uhr</dt>
                             <dd {% if sim_active %}class="status-warn"{% endif %}>{{ "simuliert" if sim_active else "Echtzeit" }}</dd></div>
                         <div><dt>Display</dt>
-                            <dd>{{ "an" if conf.get('DISPLAY_ACTIVE', True) else "aus" }}</dd></div>
+                            <dd {% if test_laeuft %}class="status-warn"{% endif %}>{% if test_laeuft %}Testlauf{% else %}{{ "an" if conf.get('DISPLAY_ACTIVE', True) else "aus" }}{% endif %}</dd></div>
                     </div>
                 </div>
                 
