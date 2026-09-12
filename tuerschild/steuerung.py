@@ -11,7 +11,8 @@ Testsuite sie ersetzen kann - siehe den Hinweis in anzeige.py.
 import datetime
 import logging
 import time
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
+from typing import Optional
 
 from .anzeige import update_display_logic
 from .hardware import (check_touch_via_i2c, clear_display_once,
@@ -210,166 +211,329 @@ def melde_stoerungsdauer(stoerung_aktiv: bool, fehler: str) -> None:
             )
 
 
+# ==============================================================================
+# Die Hintergrundschleife
+# ==============================================================================
+# Die Schleife bestand frueher aus einem einzigen Block von rund 170 Zeilen.
+# Fachlich steckten darin mehrere voneinander unabhaengige Entscheidungen -
+# wann aktualisiert wird, ob eine Beruehrung zaehlt, ob das Panel ueberhaupt
+# neu gezeichnet werden muss. Pruefen liess sich davon nur, was am Ende auf
+# dem Display landete: Die Schleife war nur als Ganzes aufrufbar, in einem
+# eigenen Thread, mit echten Wartezeiten. Die Entprellung der Beruehrung und
+# die E-Paper-Schonung blieben deshalb ungeprueft - ausgerechnet die beiden
+# Stellen, an denen ein Fehler Verschleiss am Panel bedeutet.
+#
+# Darum steht jeder dieser Schritte jetzt als eigene Funktion da. Sie sind
+# absichtlich klein und ohne Nebenwirkungen ausser den benannten, damit ein
+# Test sie einzeln aufrufen kann. Die Schleife selbst reiht sie nur noch
+# aneinander. Am Verhalten aendert das nichts - tests/test_schleifenschritte.py
+# haelt die Reihenfolge und die Zusicherungen der einzelnen Schritte fest.
+
+
+@dataclass
+class Schleifenzustand:
+    """
+    Was die Schleife von einem Durchlauf zum naechsten mitnimmt.
+
+    Frueher waren das fuenf lose lokale Variablen im Rumpf der Schleife. Als
+    Objekt lassen sie sich einem einzelnen Schritt uebergeben und danach
+    nachsehen - genau das braucht ein Test der Entprellung oder der
+    E-Paper-Schonung, denn beide bestehen darin, sich etwas zu merken.
+    """
+    # Zeitpunkt der letzten Aktualisierung (Systemuhr, fuer das Abrufintervall)
+    letztes_update: float = 0.0
+    # Zeitpunkt der letzten erkannten Beruehrung - Grundlage der Entprellung
+    letzte_beruehrung: float = field(default_factory=lambda: time.time())
+    # Minute, die zuletzt eine Aktualisierung ausgeloest hat ("09:55"). Ohne
+    # diese Notiz wuerde dieselbe Minute sechzig Sekunden lang immer wieder
+    # ausloesen.
+    letzte_ausloesende_minute: Optional[str] = None
+    # Tag, an dem zuletzt eine statische Meldung gezeichnet wurde ("2026-08-31")
+    letzter_statischer_tag: Optional[str] = None
+    # None = noch unbekannt. Dadurch wird beim ersten Durchlauf mit
+    # abgeschaltetem Display einmal geloescht, danach nicht mehr.
+    display_war_aktiv: Optional[bool] = None
+
+
+def aktualisierungszeitpunkte(schedule: dict) -> set:
+    """
+    Sammelt die Uhrzeiten, zu denen das Schild auf jeden Fall neu zeichnen soll.
+
+    Das sind Stundenbeginn und -ende, die Pausen, der Schulbeginn und das
+    Schulende - und fuenf Minuten vor jedem Stundenbeginn, damit die naechste
+    Stunde schon an der Tuer steht, wenn die Klasse ankommt.
+
+    PAEDAGOGISCH: Rueckgabe ist ein 'Set' und keine Liste. Sets garantieren
+    extrem schnelle Zugriffszeiten (O(1)), was den Pi entlastet - die Schleife
+    fragt diese Menge jede halbe Sekunde ab.
+
+    Ein unbrauchbarer Eintrag (Text statt Uhrzeit, fehlendes Feld) wird
+    uebergangen statt zu einer Ausnahme zu fuehren: Die config.json laesst
+    sich von Hand bearbeiten, und ein Tippfehler darin darf das Schild nicht
+    anhalten.
+    """
+    zeitpunkte = set()
+    lessons_conf = schedule.get("LESSONS", [])
+
+    if isinstance(lessons_conf, list):
+        for stunde in lessons_conf:
+            start_t = stunde.get("start")
+            end_t = stunde.get("end")
+            if start_t:
+                zeitpunkte.add(start_t)
+                try:
+                    # Berechne den 5-Minuten-Vorlauf
+                    h, m = map(int, str(start_t).split(":"))
+                    dt = datetime.datetime(2000, 1, 1, h, m) - datetime.timedelta(minutes=5)
+                    zeitpunkte.add(dt.strftime("%H:%M"))
+                except Exception:
+                    pass
+            if end_t:
+                zeitpunkte.add(end_t)
+
+    for pause in schedule.get("BREAKS", []):
+        if pause.get("start"): zeitpunkte.add(pause.get("start"))
+        if pause.get("end"): zeitpunkte.add(pause.get("end"))
+
+    zeitpunkte.add(schedule.get("DAY_START", "07:55"))
+    zeitpunkte.add(schedule.get("DAY_END", "15:30"))
+    return zeitpunkte
+
+
+def ist_schulzeit(schedule: dict, zeitpunkt: datetime.time) -> bool:
+    """
+    Sagt, ob der Zeitpunkt in das Zeitfenster faellt, in dem regelmaessig
+    abgerufen wird - jeweils eine Stunde vor Schulbeginn bis eine Stunde nach
+    Schulende.
+
+    WARUM DER PUFFER: Vor der ersten Stunde soll der Plan schon stehen, und
+    nach der letzten koennen noch Nachtraege kommen. Ausserhalb davon laeuft
+    das feste Abrufintervall nicht - nachts jede Viertelstunde WebUntis zu
+    fragen, brauchte niemand.
+
+    Bei einem unbrauchbaren Eintrag in der config.json lautet die Antwort
+    'ja'. Lieber zu oft abrufen als ein Schild, das wegen eines Tippfehlers
+    den ganzen Tag nichts mehr holt.
+    """
+    try:
+        ds_h, ds_m = map(int, schedule.get("DAY_START", "07:55").split(":"))
+        de_h, de_m = map(int, schedule.get("DAY_END", "15:30").split(":"))
+        active_start = datetime.time(max(0, ds_h - 1), ds_m)
+        active_end = datetime.time(min(23, de_h + 1), de_m)
+        return active_start <= zeitpunkt <= active_end
+    except Exception:
+        return True
+
+
+def pruefe_beruehrung(conf: dict, zustand: Schleifenzustand, jetzt: float) -> bool:
+    """
+    Wertet den Beruehrungssensor aus und setzt bei Bedarf das Update-Signal.
+
+    WARUM DIE ENTPRELLUNG (TOUCH_COOLDOWN): Ein Finger auf dem Sensor loest
+    nicht einmal aus, sondern viele Male hintereinander. Ohne Sperrfrist
+    wuerde jede Beruehrung eine ganze Reihe von Abrufen und
+    Display-Neuzeichnungen anstossen - auf E-Paper jedes Mal ein voller
+    Refresh-Zyklus mit Blitzen und Verschleiss.
+
+    Entscheidend und leicht zu uebersehen: Der Zeitstempel wird bei JEDER
+    erkannten Beruehrung fortgeschrieben, auch bei einer unterdrueckten. Wer
+    den Finger liegen laesst, verlaengert die Sperre also, statt sie nach
+    TOUCH_COOLDOWN Sekunden auszuloesen.
+
+    Gibt zurueck, ob diese Beruehrung eine Aktualisierung angestossen hat.
+    """
+    if not conf.get('TOUCH_ACTIVE', True) or not check_touch_via_i2c():
+        return False
+
+    ausgeloest = jetzt - zustand.letzte_beruehrung > TOUCH_COOLDOWN
+    if ausgeloest:
+        logging.info("Display beruehrt! Update wird vorbereitet...")
+        with app_state.state_lock:
+            app_state.force_update_flag = True
+    zustand.letzte_beruehrung = jetzt
+    return ausgeloest
+
+
+def hole_anzeigedaten(conf: dict, zeige_demo: bool):
+    """
+    Besorgt, was als naechstes auf dem Schild stehen soll.
+
+    Liefert (Daten, Meldung, veraltet). 'veraltet' heisst: Die Daten stammen
+    aus der Offline-Ruecklage, weil WebUntis gerade nicht erreichbar ist - das
+    Schild zeigt sie mit einem Hinweis an.
+    """
+    if zeige_demo:
+        data = demo_daten()
+        with app_state.state_lock:
+            app_state.show_demo_once = False
+        return data, "", False
+
+    data, err = get_current_lesson(conf)
+
+    # Vor dem Rueckgriff auf die Ruecklage festhalten, ob der Abruf geglueckt
+    # ist: Danach steht in 'err' die Meldung der Ruecklage und die Stoerung
+    # waere nicht mehr erkennbar.
+    melde_stoerungsdauer(data is None and err in TRANSIENT_ERRORS, err)
+
+    # Ausfallsicherheit: Bei einer vorübergehenden Störung lieber den
+    # zuletzt abgerufenen Tagesplan weiterzeigen als eine Fehlermeldung.
+    if data is None and err in TRANSIENT_ERRORS:
+        fallback = get_offline_fallback(conf)
+        if fallback is not None:
+            logging.warning(f"WebUntis nicht erreichbar ({err}) - "
+                            "zeige zuletzt abgerufene Plandaten.")
+            data, err = fallback
+            return data, err, True
+
+    return data, err, False
+
+
+def ist_statischer_tag(err) -> bool:
+    """
+    Sagt, ob die Meldung sich bis morgen nicht mehr aendern kann - Wochenende,
+    Ferien, unterrichtsfreier Tag.
+    """
+    return (err in ["Schönes Wochenende!", "Unterrichtsfrei"]
+            or (isinstance(err, str) and "Ferien" in err))
+
+
+def zeichnen_ueberspringen(zustand: Schleifenzustand, err, datum: str,
+                           ist_manuell: bool) -> bool:
+    """
+    E-PAPER SCHONUNG: Entscheidet, ob das Neuzeichnen ausfallen darf.
+
+    Eine statische Meldung ("Schönes Wochenende!") aendert sich den ganzen Tag
+    nicht. Sie trotzdem alle paar Minuten neu zu zeichnen, ist auf E-Paper
+    kein billiger Vorgang: Jedes Zeichnen ist ein vollstaendiger
+    Refresh-Zyklus. Ueber ein Wochenende kaemen so einige hundert zusammen -
+    fuer ein Bild, das sich nie aendert.
+
+    Deshalb wird pro Tag genau einmal gezeichnet. Ein Druck auf den Knopf im
+    Web-Interface zeichnet weiterhin sofort, damit sich ein verschmutztes Bild
+    von Hand bereinigen laesst.
+
+    Nebenwirkung: Die Notiz im Zustand wird fortgeschrieben. Sie wird beim
+    ersten gewoehnlichen Schultag wieder geloescht, damit das naechste
+    Wochenende erneut einmal zeichnet.
+    """
+    if ist_statischer_tag(err) and not ist_manuell:
+        if zustand.letzter_statischer_tag == datum:
+            return True
+        zustand.letzter_statischer_tag = datum
+        return False
+
+    zustand.letzter_statischer_tag = None
+    return False
+
+
+def aktualisiere_anzeige(conf: dict, zustand: Schleifenzustand,
+                         current_dt: datetime.datetime, ist_manuell: bool,
+                         zeige_demo: bool) -> None:
+    """
+    Fuehrt eine faellige Aktualisierung aus: Daten holen, fuer die
+    Web-Oberflaeche merken, zeichnen - oder bei abgeschaltetem Display das
+    Panel leeren.
+    """
+    if conf.get('DISPLAY_ACTIVE', True):
+        data, err, ist_veraltet = hole_anzeigedaten(conf, zeige_demo)
+
+        # Cachen der Ergebnisse für das Webinterface
+        with app_state.state_lock:
+            app_state.current_display_data = data
+            app_state.current_display_msg = err
+            app_state.data_is_stale = ist_veraltet
+
+        datum = current_dt.strftime("%Y-%m-%d")
+        if not zeichnen_ueberspringen(zustand, err, datum, ist_manuell):
+            update_display_logic(data, err, conf, stale=ist_veraltet)
+    else:
+        # E-PAPER SCHONEN: Nur beim Abschalten einmal loeschen.
+        # Frueher lief dieser Zweig bei jedem Intervall und an jeder
+        # Stundengrenze - also ein vollstaendiger Loeschzyklus auf
+        # einem bereits leeren Panel, alle paar Minuten, den ganzen
+        # Tag. Ein manuelles Update loescht weiterhin, damit sich
+        # ein verschmutztes Bild von Hand bereinigen laesst.
+        if zustand.display_war_aktiv is not False or ist_manuell:
+            clear_display_once()
+
+    zustand.display_war_aktiv = conf.get('DISPLAY_ACTIVE', True)
+
+
+def ein_durchlauf(zustand: Schleifenzustand) -> None:
+    """
+    Ein einzelner Durchgang der Hintergrundschleife.
+
+    Als eigene Funktion laesst sich der Durchgang im Test einzeln aufrufen -
+    ohne Thread, ohne echte Wartezeit und mit nachsehbarem Zustand davor und
+    danach.
+    """
+    with app_state.state_lock:
+        is_testing = app_state.test_mode_active
+
+    if is_testing:
+        app_state.shutdown_event.wait(1)
+        return
+
+    conf = get_cached_config()
+    if not conf:
+        app_state.shutdown_event.wait(5)
+        return
+
+    schedule = conf.get("SCHEDULE", {})
+    zeitpunkte = aktualisierungszeitpunkte(schedule)
+
+    now_time_system = time.time()
+    current_dt = get_now()
+    current_hm = current_dt.strftime("%H:%M")
+    schulzeit = ist_schulzeit(schedule, current_dt.time())
+
+    pruefe_beruehrung(conf, zustand, now_time_system)
+
+    with app_state.state_lock:
+        ist_manuell = app_state.force_update_flag
+        zeige_demo = app_state.show_demo_once
+
+    # Logik: Update erforderlich?
+    is_exact_time = (current_hm in zeitpunkte) and (zustand.letzte_ausloesende_minute != current_hm)
+    is_interval_reached = (now_time_system - zustand.letztes_update
+                           >= get_update_interval(conf)) and schulzeit
+
+    if not (ist_manuell or is_interval_reached or is_exact_time):
+        # Kurze Pause verhindert CPU-Spam (100% Auslastung)
+        app_state.shutdown_event.wait(0.5)
+        return
+
+    if is_exact_time:
+        zustand.letzte_ausloesende_minute = current_hm
+
+    with app_state.state_lock:
+        app_state.force_update_flag = False
+
+    aktualisiere_anzeige(conf, zustand, current_dt, ist_manuell, zeige_demo)
+
+    zustand.letztes_update = time.time()
+    app_state.shutdown_event.wait(1.5)
+    clear_touch_interrupt_via_i2c()
+    zustand.letzte_beruehrung = time.time()
+
+    # Kurze Pause verhindert CPU-Spam (100% Auslastung)
+    app_state.shutdown_event.wait(0.5)
+
+
 def background_loop() -> None:
     """
     Der Kernprozess (Endlosschleife), der asynchron im Hintergrund läuft.
-    Er vergleicht die aktuelle Uhrzeit mit dem Stundenplan und feuert ein 
+    Er vergleicht die aktuelle Uhrzeit mit dem Stundenplan und feuert ein
     Update-Event, wenn eine neue Stunde beginnt oder das Display berührt wurde.
+
+    Die eigentliche Arbeit steht in ein_durchlauf(); hier bleibt nur, was eine
+    Endlosschleife ausmacht: das Abbruchsignal und das Auffangnetz.
     """
-    last_update = 0
-    last_touch_time = time.time()
-    last_minute_triggered = None
-    last_static_date = None
-    # None = noch unbekannt. Dadurch wird beim ersten Durchlauf mit
-    # abgeschaltetem Display einmal geloescht, danach nicht mehr.
-    display_war_aktiv = None
+    zustand = Schleifenzustand()
 
     while not app_state.shutdown_event.is_set():
         try:
-            with app_state.state_lock:
-                is_testing = app_state.test_mode_active
-            
-            if is_testing:
-                app_state.shutdown_event.wait(1)
-                continue
-
-            conf = get_cached_config()
-            if not conf:
-                app_state.shutdown_event.wait(5)
-                continue
-
-            schedule = conf.get("SCHEDULE", {})
-            lessons_conf = schedule.get("LESSONS", [])
-        
-            # PÄDAGOGISCH: Wir nutzen 'Sets' anstelle von Listen für die Suchzeiten. 
-            # Sets garantieren extrem schnelle Zugriffszeiten (O(1)), was den Pi entlastet.
-            dyn_update_times = set() 
-        
-            if isinstance(lessons_conf, list):
-                for l in lessons_conf:
-                    start_t = l.get("start")
-                    end_t = l.get("end")
-                    if start_t: 
-                        dyn_update_times.add(start_t)
-                        try:
-                            # Berechne den 5-Minuten-Vorlauf
-                            h, m = map(int, str(start_t).split(":"))
-                            dt = datetime.datetime(2000, 1, 1, h, m) - datetime.timedelta(minutes=5)
-                            dyn_update_times.add(dt.strftime("%H:%M"))
-                        except Exception: 
-                            pass 
-                    if end_t: 
-                        dyn_update_times.add(end_t)
-        
-            for b in schedule.get("BREAKS", []):
-                if b.get("start"): dyn_update_times.add(b.get("start"))
-                if b.get("end"): dyn_update_times.add(b.get("end"))
-            
-            dyn_update_times.add(schedule.get("DAY_START", "07:55"))
-            dyn_update_times.add(schedule.get("DAY_END", "15:30"))
-        
-            now_time_system = time.time() 
-            current_dt = get_now()
-            current_hm = current_dt.strftime("%H:%M")
-            current_time_obj = current_dt.time()
-        
-            # Laufzeit-Prüfung: Außerhalb der Schulzeiten updaten wir seltener
-            try:
-                ds_h, ds_m = map(int, schedule.get("DAY_START", "07:55").split(":"))
-                de_h, de_m = map(int, schedule.get("DAY_END", "15:30").split(":"))
-                active_start = datetime.time(max(0, ds_h - 1), ds_m)
-                active_end = datetime.time(min(23, de_h + 1), de_m)
-                is_active_hours = active_start <= current_time_obj <= active_end
-            except Exception:
-                is_active_hours = True 
-
-            # Touch-Erkennung
-            if conf.get('TOUCH_ACTIVE', True) and check_touch_via_i2c():
-                if now_time_system - last_touch_time > TOUCH_COOLDOWN:
-                    logging.info(f"Display beruehrt! Update wird vorbereitet...")
-                    with app_state.state_lock:
-                        app_state.force_update_flag = True
-                last_touch_time = now_time_system
-
-            with app_state.state_lock:
-                current_force_update = app_state.force_update_flag
-                current_show_demo = app_state.show_demo_once
-
-            # Logik: Update erforderlich?
-            is_exact_time = (current_hm in dyn_update_times) and (last_minute_triggered != current_hm)
-            is_interval_reached = (now_time_system - last_update >= get_update_interval(conf)) and is_active_hours
-
-            # Update ausführen
-            if current_force_update or is_interval_reached or is_exact_time:
-                if is_exact_time: last_minute_triggered = current_hm 
-                is_manual = current_force_update 
-            
-                with app_state.state_lock:
-                    app_state.force_update_flag = False
-            
-                if conf.get('DISPLAY_ACTIVE', True):
-                    is_stale = False
-
-                    if current_show_demo:
-                        data = demo_daten()
-                        err = ""
-                        with app_state.state_lock:
-                            app_state.show_demo_once = False
-                    else:
-                        data, err = get_current_lesson(conf)
-
-                        # Vor dem Rueckgriff auf die Ruecklage festhalten, ob der
-                        # Abruf geglueckt ist: Danach steht in 'err' die Meldung
-                        # der Ruecklage und die Stoerung waere nicht mehr erkennbar.
-                        melde_stoerungsdauer(data is None and err in TRANSIENT_ERRORS, err)
-
-                        # Ausfallsicherheit: Bei einer vorübergehenden Störung lieber den
-                        # zuletzt abgerufenen Tagesplan weiterzeigen als eine Fehlermeldung.
-                        if data is None and err in TRANSIENT_ERRORS:
-                            fallback = get_offline_fallback(conf)
-                            if fallback is not None:
-                                logging.warning(f"WebUntis nicht erreichbar ({err}) - "
-                                                "zeige zuletzt abgerufene Plandaten.")
-                                data, err = fallback
-                                is_stale = True
-
-                    # Cachen der Ergebnisse für das Webinterface
-                    with app_state.state_lock:
-                        app_state.current_display_data = data
-                        app_state.current_display_msg = err
-                        app_state.data_is_stale = is_stale
-
-                    current_date = current_dt.strftime("%Y-%m-%d")
-                    is_static_day = err in ["Schönes Wochenende!", "Unterrichtsfrei"] or (isinstance(err, str) and "Ferien" in err)
-                
-                    # E-Paper Schonung: Statische Meldungen (z.B. Ferien) zeichnen wir nur einmal pro Tag neu
-                    skip_update = False
-                    if is_static_day and not is_manual:
-                        if last_static_date == current_date: skip_update = True
-                        else: last_static_date = current_date 
-                    else: last_static_date = None 
-                    
-                    if not skip_update:
-                        update_display_logic(data, err, conf, stale=is_stale)
-                else:
-                    # E-PAPER SCHONEN: Nur beim Abschalten einmal loeschen.
-                    # Frueher lief dieser Zweig bei jedem Intervall und an jeder
-                    # Stundengrenze - also ein vollstaendiger Loeschzyklus auf
-                    # einem bereits leeren Panel, alle paar Minuten, den ganzen
-                    # Tag. Ein manuelles Update loescht weiterhin, damit sich
-                    # ein verschmutztes Bild von Hand bereinigen laesst.
-                    if display_war_aktiv is not False or is_manual:
-                        clear_display_once()
-
-                display_war_aktiv = conf.get('DISPLAY_ACTIVE', True)
-                
-                last_update = time.time()
-                app_state.shutdown_event.wait(1.5)
-                clear_touch_interrupt_via_i2c()
-                last_touch_time = time.time()
-            
-            # Kurze Pause verhindert CPU-Spam (100% Auslastung)
-            app_state.shutdown_event.wait(0.5)
+            ein_durchlauf(zustand)
         except Exception:
             # AUFFANGNETZ: Ohne diesen Block wuerde eine unerwartete Ausnahme
             # diesen Thread beenden. Das Display bliebe dann fuer immer stehen,
@@ -382,4 +546,3 @@ def background_loop() -> None:
             # Laengere Pause, damit ein dauerhaft auftretender Fehler weder das
             # Log flutet noch den Pi unnoetig belastet.
             app_state.shutdown_event.wait(BACKGROUND_ERROR_PAUSE)
-

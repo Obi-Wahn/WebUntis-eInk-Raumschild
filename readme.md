@@ -139,6 +139,8 @@ Das Zeichnen des Displays steht in `anzeige.zeichne_anzeige()` und ist vom Sende
 
 Die Vorlage lag früher als 232-zeilige Zeichenkette in `web.py` — ein Zugeständnis an die Installation per Copy&Paste einer einzigen Datei. Seit der Aufteilung in ein Paket gilt das nicht mehr; als eigene Datei bekommt sie im Editor wieder Syntaxhervorhebung, und `web.py` enthält nur noch Programmcode.
 
+Die Hintergrundschleife in `steuerung.py` besteht aus benannten Schritten (`aktualisierungszeitpunkte`, `ist_schulzeit`, `pruefe_beruehrung`, `hole_anzeigedaten`, `zeichnen_ueberspringen`, `aktualisiere_anzeige`) und einem Durchgang, der sie aneinanderreiht (`ein_durchlauf`). `background_loop()` selbst enthält nur noch das Abbruchsignal und das Auffangnetz. Vorher war das ein einziger Block von rund 170 Zeilen — prüfen ließ sich davon nur, was am Ende auf dem Display landete, und zwar über einen echten Thread mit echten Wartezeiten. Die Entprellung der Berührung und die E-Paper-Schonung blieben deshalb ungeprüft, ausgerechnet die beiden Stellen, an denen ein Fehler Verschleiß am Panel bedeutet. Als einzelne Funktionen sind sie ohne Thread aufrufbar; `tests/test_schleifenschritte.py` hält ihre Zusicherungen fest.
+
 Gestartet wird weiterhin über `raumanzeige.py` im Projektverzeichnis — dort steht nur noch, was zum Starten und sauberen Beenden gehört.
 
 *Hinweis für Änderungen:* Soll in Tests eine Funktion ersetzt werden, muss das im **definierenden** Modul geschehen (etwa `tuerschild.hardware.epd2in13_V3`). Die Sammel-Importe in `tuerschild/__init__.py` sind Kopien der Verweise; ein Ersetzen dort träfe nur diese Kopie.
