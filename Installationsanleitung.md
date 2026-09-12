@@ -279,13 +279,15 @@ Das Türschild überwacht das ab jetzt selbst. Bleibt die Uhr nach dem Start lä
 
 *Hinweis:* Die Erkennung stützt sich auf die Datei, die `systemd-timesyncd` nach dem ersten geglückten Abgleich anlegt. Holt Ihre Anlage die Zeit über einen anderen Dienst (etwa `chrony`), kann das Türschild die Frage nicht beantworten und meldet **nichts** — eine Warnung, die nicht stimmt, wäre schlechter als keine.
 
-**Zusätzlich empfohlen:** `fake-hwclock` speichert die Uhrzeit beim Herunterfahren und stellt sie beim nächsten Start wieder her. Ohne diesen Dienst beginnt der Pi nach einem Stromausfall bei einem deutlich älteren Zeitpunkt. Auf Raspberry Pi OS ist er in der Regel eingerichtet; prüfen lässt sich das so:
+**Und wenn gar kein Netz da ist?** Dann muss die Uhr wenigstens ungefähr stimmen. Dafür sorgt `systemd-timesyncd` selbst: Es hält die zuletzt bekannte Zeit im Änderungsdatum einer leeren Datei fest und hebt die Systemuhr beim Start mindestens auf diesen Wert an. Der Pi beginnt also beim letzten Betriebszeitpunkt und nicht im Jahr 1970:
 
 ```bash
-systemctl is-enabled fake-hwclock
+ls -l /var/lib/systemd/timesync/clock
 ```
 
-Erwartet wird `enabled`. Nicht verwirren lassen: `systemctl is-active fake-hwclock` meldet `inactive`, und das ist richtig so — der Dienst läuft einmalig beim Start und beim Herunterfahren, nicht dauerhaft. Für die Frage, ob er eingerichtet ist, zählt allein `is-enabled`.
+Erwartet wird eine vorhandene Datei mit einem plausiblen, aktuellen Zeitstempel. Die Datei ist 0 Byte groß — der Zeitstempel *ist* der gespeicherte Wert.
+
+*Hinweis für alte Anleitungen:* Diese Aufgabe hatte früher das Paket `fake-hwclock`. Auf aktuellem Raspberry Pi OS (Trixie) ist es nicht mehr installiert und wird auch nicht gebraucht; `systemctl is-enabled fake-hwclock` meldet dort `not-found`, und das ist kein Fehler. Nachinstallieren müssen Sie nichts.
 
 ## **11. Rechteverwaltung für das Webinterface (Sudoers)**
 
