@@ -1,10 +1,64 @@
-# **WebUntis E-Paper-Raumanzeige**
+# WebUntis E-Paper-Raumanzeige
 
 Dieses Projekt stellt ein automatisiertes, digitales Türschild für den Einsatz im schulischen Umfeld bereit. Das System synchronisiert sich selbstständig mit der WebUntis-API und visualisiert den aktuellen sowie den folgenden Unterricht auf einem energieeffizienten E-Paper-Display.
 
 *Hinweis: Dieses Projekt und die zugehörige Dokumentation wurden für den schulischen Einsatz konzipiert und mit Unterstützung von KI-Modellen entwickelt und strukturiert.*
 
-## **✨ Funktionsumfang**
+## Inhalt
+
+1. [Schnellstart](#schnellstart)
+2. [Funktionsumfang](#funktionsumfang)
+3. [Hardware](#hardware)
+4. [Konfiguration](#konfiguration)
+5. [Datenschutz und Sicherheit](#datenschutz-und-sicherheit)
+6. [Aktualisieren](#aktualisieren)
+7. [Tests](#tests)
+8. [Aufbau des Programms](#aufbau-des-programms)
+9. [Verwendete Komponenten](#verwendete-komponenten)
+10. [Lizenz](#lizenz)
+
+## Schnellstart
+
+Die Kurzfassung für einen frisch aufgesetzten Raspberry Pi (Raspberry Pi OS Lite, Benutzer `pi`, WLAN und SSH eingerichtet). Jeder Schritt ist in der [Installationsanleitung](./Installationsanleitung.md) ausführlich erklärt.
+
+**1. SPI und I2C einschalten, Zeitzone Europe/Berlin setzen**, danach neu starten (Installationsanleitung, Schritt 1):
+
+```bash
+sudo raspi-config
+```
+
+**2. Pakete, Programm und Display-Treiber holen** (Schritte 2 bis 4):
+
+```bash
+sudo apt update && sudo apt install -y python3-pip python3-venv git libopenjp2-7 libtiff-dev libxcb1 i2c-tools fonts-dejavu nginx openssl
+cd ~ && git clone https://github.com/Obi-Wahn/WebUntis-eInk-Raumschild.git webuntis-display && cd webuntis-display
+git clone https://github.com/waveshareteam/e-Paper.git && git -C e-Paper checkout a794fbc39656b0f93938d1ffb3fdc77eaed9e9fc
+python3 -m venv webuntis && webuntis/bin/pip install -r requirements.txt -r requirements-dev.txt
+```
+
+**3. Zugangsdaten eintragen** (Schritte 5 und 6). Die Zeiten unter `SCHEDULE` lassen sich [aus WebUntis übernehmen](#stundenraster-aus-webuntis-übernehmen):
+
+```bash
+cp config.example.json config.json && chmod 600 config.json && nano config.json
+```
+
+**4. Probelauf**, beenden mit Strg+C:
+
+```bash
+webuntis/bin/python3 raumanzeige.py
+```
+
+**5. Für den Dauerbetrieb** folgen noch diese Schritte der Installationsanleitung:
+
+* Schritt 7: HTTPS für das Web-Interface (Nginx)
+* Schritt 8: Autostart als Systemdienst
+* Schritt 9: WLAN-Wächter
+* Schritt 10: Zeitabgleich prüfen
+* Schritt 11: Neustart und Herunterfahren aus dem Web-Interface erlauben
+
+## Funktionsumfang
+
+### Auf dem Display
 
 * **Automatisierte Synchronisation:** Abruf der aktuellen Plandaten über die WebUntis-API. Das Display zeigt übersichtlich die aktuell laufende Stunde ("JETZT") sowie die darauf folgende Belegung ("DANACH") an.
 * **Ausfall- und Vertretungserkennung:** Planänderungen wie Ausfälle oder Vertretungen werden durch spezifische WebUntis-Statuscodes erkannt und visuell hervorgehoben (z. B. durch invertierte Darstellung).
@@ -12,56 +66,35 @@ Dieses Projekt stellt ein automatisiertes, digitales Türschild für den Einsatz
 * **Kopfzeile mit Wochentag:** Raumname links, rechts Wochentag, Datum und Uhrzeit — im stressigen Schulalltag ist der Wochentag die Angabe, die man am ehesten aus dem Blick verliert. Die Wochentage stehen als feste Liste im Programm und kommen nicht aus `strftime("%a")`; sonst hinge die Ausgabe an der eingestellten Locale und auf einem frisch aufgesetzten Pi stünde dort „Wed".
 * **Auf Lesbarkeit aus zwei Metern ausgelegt:** Meldungen wie „Raum ist frei" oder „Unterrichtsende" werden so groß gesetzt, wie sie auf 250 × 122 Pixel passen (24 Punkt, bei zu breitem Text automatisch eine Stufe kleiner statt gekürzt), und mittig in die freie Fläche gerückt. Der Raumname in der Kopfzeile wird auf den Platz vor der Uhrzeit gekürzt, statt sie zu überschreiben.
 * **Ressourcenschonender Ruhemodus:** Außerhalb der regulären Unterrichtszeiten (sowie an Wochenenden und Feiertagen) pausiert das System die regelmäßigen API-Abfragen und versetzt das Display in einen schonenden Standby-Modus.
-* **Offline-Rücklage bei Netzausfall:** Fällt das WLAN oder WebUntis aus, ersetzt das Display den Stundenplan nicht durch eine Fehlermeldung, sondern zeigt den zuletzt abgerufenen Tagesplan weiter. Dieser wird dabei lokal neu ausgewertet, sodass auch während der Störung zur richtigen Zeit auf die nächste Stunde gewechselt wird. Ein invertiertes Warndreieck in der Kopfzeile (und ein Hinweis im Web-Interface) kennzeichnet die Daten als möglicherweise nicht mehr taggenau. Dauerhafte Fehler wie ein falsches Passwort bleiben dagegen sichtbar, damit sie behoben werden.
-* **WLAN-Wächter:** Scheitert die WPA-Schlüsselverhandlung ein einziges Mal — in einem dicht belegten 2,4-GHz-Band verliert sich schon einmal ein Paket —, deutet der NetworkManager das als falsches Passwort und fragt nach einem neuen. Auf einem Gerät ohne Bildschirm beantwortet das niemand, und er gibt endgültig auf; das Schild bliebe offline, bis jemand den Stecker zieht. Ein kleiner Dienst prüft deshalb alle zwei Minuten, ob eine Adresse vorhanden ist, und stößt sonst einen frischen Versuch an — der nimmt das gespeicherte Passwort ganz normal. Die Ursache behebt das nicht, aber ein einzelner Fehlschlag ist damit nicht mehr endgültig.
 * **Hardware-Interaktion:** Über einen kapazitiven Touch-Sensor (via I2C) kann jederzeit ein sofortiges manuelles Update des Displays erzwungen werden.
+
+### Zuverlässigkeit im Betrieb
+
+* **Offline-Rücklage bei Netzausfall:** Fällt das WLAN oder WebUntis aus, ersetzt das Display den Stundenplan nicht durch eine Fehlermeldung, sondern zeigt den zuletzt abgerufenen Tagesplan weiter. Dieser wird dabei lokal neu ausgewertet, sodass auch während der Störung zur richtigen Zeit auf die nächste Stunde gewechselt wird. Ein invertiertes Warndreieck in der Kopfzeile (und ein Hinweis im Web-Interface) kennzeichnet die Daten als möglicherweise nicht mehr taggenau. Dauerhafte Fehler wie ein falsches Passwort bleiben dagegen sichtbar, damit sie behoben werden.
+* **Meldung bei anhaltender Störung:** Ein kurzer Ausfall bleibt eine Randnotiz — die Offline-Rücklage trägt ihn. Dauert er länger als drei Stunden, wird daraus eine Fehlermeldung im Systemprotokoll und ein roter Hinweis samt Dauer im Web-Interface. Ohne diese Eskalation sähe das Schild weiterhin völlig gesund aus: Es zeigt ja einen plausiblen Plan, nur eben einen, in dem seit Stunden keine Vertretung mehr nachgetragen wurde.
+* **WLAN-Wächter:** Scheitert die WPA-Schlüsselverhandlung ein einziges Mal — in einem dicht belegten 2,4-GHz-Band verliert sich schon einmal ein Paket —, deutet der NetworkManager das als falsches Passwort und fragt nach einem neuen. Auf einem Gerät ohne Bildschirm beantwortet das niemand, und er gibt endgültig auf; das Schild bliebe offline, bis jemand den Stecker zieht. Ein kleiner Dienst prüft deshalb alle zwei Minuten, ob eine Adresse vorhanden ist, und stößt sonst einen frischen Versuch an — der nimmt das gespeicherte Passwort ganz normal. Die Ursache behebt das nicht, aber ein einzelner Fehlschlag ist damit nicht mehr endgültig.
+* **Prüfung der Systemuhr:** Das Gerät hat keine Echtzeituhr; ist der Zeitabgleich aus dem Netz nicht erreichbar, fragt es WebUntis nach dem falschen Tag und zeigt einen plausibel aussehenden Plan von gestern. `konfiguration.uhr_synchronisiert()` beantwortet das mit **drei** Werten — gestellt, nicht gestellt, oder *nicht feststellbar*, wenn die Zeit über einen anderen Dienst als `systemd-timesyncd` kommt. Nur der mittlere Fall führt zu einer Meldung: Eine Warnung, die auf fremden Anlagen dauerhaft dasteht und nicht stimmt, liest nach drei Tagen niemand mehr. Näheres in der [Installationsanleitung](./Installationsanleitung.md), Schritt 10.
+* **Geprüfte Konfiguration:** Beim Einlesen der `config.json` wird gemeldet, was am Raumnamen und am Stundenplan nicht stimmt — mit Angabe des betroffenen Eintrags. Diese Fehler äußern sich sonst nicht als Fehlermeldung, sondern als stille Unauffälligkeit: `"8:00"` statt `"08:00"` lässt den Stundennamen einfach leer, ein leerer Raumname erzeugt ein „Raum None fehlt." ohne erkennbaren Grund. Gewarnt wird nur, abgelehnt nichts — ein Türschild, das wegen eines Kommafehlers gar nicht erst startet, wäre die schlechtere Lösung.
+
+### Web-Interface
+
 * **Responsives & Sicheres Administrations-Interface:** Die Verwaltung erfolgt über ein lokales Web-Interface. Dank modernem **CSS-Grid** und **Mobile-First-Ansatz** passt sich das Layout perfekt an: Auf dem Smartphone fließen die Bedienelemente logisch untereinander, auf einem Desktop-Monitor entfaltet sich ein Zwei-Spalten-Cockpit. Abgesichert ist das Ganze durch Nginx als Reverse Proxy (HTTPS/SSL) sowie HTTP Basic Authentication. Die Seite lädt sich alle fünf Minuten selbst neu, damit ein offen gelassener Tab nicht auf ewig den Zustand von damals zeigt — Vorschaubild wie Statusliste. Sie kommt dabei ohne JavaScript aus (`<meta http-equiv="refresh">`); der Preis ist, dass eine gerade angefangene Formulareingabe verlorengehen kann. Solange eine Rückmeldung zum Speichern auf der Seite steht, unterbleibt das Neuladen deshalb.
 * **Sichere Systemsteuerung & Architektur:** Über das Web-Interface lässt sich der Raspberry Pi per Knopfdruck sicher neu starten oder herunterfahren. Zustandsändernde Aktionen sind durch POST-Requests (CSRF-Schutz) gesichert. Schreibvorgänge in die Konfigurationsdatei erfolgen atomar, um Datenkorruption bei plötzlichem Stromausfall zu vermeiden.
 * **Integrierte Diagnose:** Ein implementierter Testlauf ermöglicht die Überprüfung aller Display-Zustände und Fehlermeldungen direkt über das Web-Interface.
 * **Heller und dunkler Modus:** Die Oberfläche folgt der Einstellung des Betriebssystems (`prefers-color-scheme`) — ein Blick aufs Türschild spät abends blendet nicht mehr. Alle Farben stehen als Variablen an einer Stelle; der Dunkelmodus ist nur ein zweiter Wertesatz. Die Paare aus Schrift- und Hintergrundfarbe werden in **beiden** Schemata auf 4,5:1 Kontrast geprüft.
 * **Vorschau als 1:1-Abbild:** Das Web-Interface zeigt keine Nachbildung des Schildes, sondern dasselbe Bild — gezeichnet mit genau der Funktion, die auch das E-Paper bemalt, und als PNG in 250 × 122 Pixeln ausgeliefert. Damit sieht man aus der Ferne auch das, was eine HTML-Nachbildung nie zeigen konnte: was auf dem schmalen Panel tatsächlich Platz hat und wo ein langer Fachname gekürzt wird.
-* **Geprüfte Konfiguration:** Beim Einlesen der `config.json` wird gemeldet, was am Raumnamen und am Stundenplan nicht stimmt — mit Angabe des betroffenen Eintrags. Diese Fehler äußern sich sonst nicht als Fehlermeldung, sondern als stille Unauffälligkeit: `"8:00"` statt `"08:00"` lässt den Stundennamen einfach leer, ein leerer Raumname erzeugt ein „Raum None fehlt." ohne erkennbaren Grund. Gewarnt wird nur, abgelehnt nichts — ein Türschild, das wegen eines Kommafehlers gar nicht erst startet, wäre die schlechtere Lösung.
-* **Meldung bei anhaltender Störung:** Ein kurzer Ausfall bleibt eine Randnotiz — die Offline-Rücklage trägt ihn. Dauert er länger als drei Stunden, wird daraus eine Fehlermeldung im Systemprotokoll und ein roter Hinweis samt Dauer im Web-Interface. Ohne diese Eskalation sähe das Schild weiterhin völlig gesund aus: Es zeigt ja einen plausiblen Plan, nur eben einen, in dem seit Stunden keine Vertretung mehr nachgetragen wurde.
 
-## **🛠️ Hardware-Voraussetzungen**
+## Hardware
 
 * **Raspberry Pi Zero 2 W** (oder ein vergleichbares, aarch64-fähiges Modell)
 * **Waveshare e-Paper Display** (z. B. 2.13" kapazitiv Touch, V3)
 * **MicroSD-Karte** (mit Raspberry Pi OS Lite, 64-bit empfohlen)
 
-## **📦 Verwendete Komponenten & Abhängigkeiten**
-
-Das Projekt baut auf einer Reihe von Systempaketen und Python-Bibliotheken auf:
-
-**System-Pakete (Raspberry Pi OS / Debian):**
-
-* `python3-pip`, `python3-venv`, `git`: Grundlegende Werkzeuge für die Python-Umgebung und Versionskontrolle.
-* `libopenjp2-7`, `libtiff-dev`, `libxcb1`: Systembibliotheken, die für die Bildverarbeitung auf dem E-Paper-Display zwingend erforderlich sind.
-* `i2c-tools`: Werkzeuge zur Diagnose und Kommunikation mit dem Touch-Controller.
-* `fonts-dejavu`: Lokale Schriftarten für eine saubere, skalierbare Textdarstellung.
-* `nginx`, `openssl`: Bereitstellung der sicheren HTTPS-Verbindung (Reverse Proxy).
-
-**Python-Bibliotheken:**
-
-Die exakten, getesteten Versionen sind in der Datei [`requirements.txt`](./requirements.txt) hinterlegt und werden mit `pip install -r requirements.txt` installiert.
-
-
-* [**python-webuntis**](https://github.com/python-webuntis/python-webuntis): Schnittstelle zur WebUntis-API.
-* [**Pillow (PIL)**](https://python-pillow.github.io/): Generierung des Bildmaterials und des Layouts für das Display.
-* [**Flask**](https://flask.palletsprojects.com/) & [**Waitress**](https://docs.pylonsproject.org/projects/waitress/): Bereitstellung des lokalen Web-Interfaces.
-* [**Waveshare e-Paper**](https://github.com/waveshareteam/e-Paper): Die offiziellen Hardware-Treiber (SPI). Diese werden separat geklont und dabei auf einen geprüften Commit festgelegt.
-* [**gpiozero**](https://gpiozero.readthedocs.io/) & [**lgpio**](https://pypi.org/project/lgpio/): Werden von aktuellen Fassungen des Waveshare-Treibers zur Ansteuerung der GPIO-Pins vorausgesetzt.
-* [**smbus2**](https://pypi.org/project/smbus2/): Direkte I2C-Kommunikation mit dem kapazitiven Touch-Controller.
-
-## **🚀 Installation & Einrichtung**
-
-Eine vollständige, detaillierte Schritt-für-Schritt-Anleitung zur Einrichtung des Raspberry Pi, der Treiber und der Software finden Sie in der Datei [**Installationsanleitung.md**](./Installationsanleitung.md).
-
-## **⚙️ Konfiguration**
+## Konfiguration
 
 Das Programm erfordert eine Konfigurationsdatei namens `config.json` im Hauptverzeichnis. Nutzen Sie die bereitgestellte Datei `config.example.json` als Vorlage.
 
-### **Beispielkonfiguration:**
+### Beispielkonfiguration
 
 ```json
 {
@@ -114,42 +147,7 @@ zweistellig geschrieben werden ('09:55') - sonst bleibt der Stundenname leer.
 
 Das ist der häufigste Fehler und zugleich der am schwersten zu findende: Die Startzeit aus WebUntis ist immer zweistellig, und da das Programm Uhrzeiten als Zeichenketten vergleicht, trifft `"9:55"` schlicht auf nichts. Das Display zeigt dann alles Übrige normal an, nur der Stundenname bleibt leer.
 
-### **🔒 Wichtige Hinweise zu Datenschutz und Sicherheit**
-
-1. **Principle of Least Privilege (PoLP):** Der Webserver läuft aus Sicherheitsgründen als eingeschränkter Standardnutzer (pi) und nicht als root. Für systemkritische Befehle (Reboot/Shutdown) wird dem Nutzer über die /etc/sudoers punktuell eine isolierte Ausnahmegenehmigung erteilt.  
-2. **Dateirechte anpassen:** Stellen Sie sicher, dass die Zugangsdaten in der config.json vor dem unbefugten Auslesen durch andere lokale Benutzer geschützt sind. Führen Sie dazu auf dem System den Befehl chmod 600 config.json aus.  
-3. **Standard-Passwörter ändern:** Ändern Sie zwingend die voreingestellten Werte für ADMIN\_USER und ADMIN\_PASS in der config.json vor der ersten produktiven Inbetriebnahme im Netzwerk.  
-4. **Versionskontrolle (.gitignore):** Sollten Sie eigene Anpassungen an diesem Code-Repository vornehmen und dieses veröffentlichen wollen, stellen Sie sicher, dass die Datei config.json sowie etwaige Log-Dateien durch die .gitignore vom Upload ausgeschlossen sind. Reale Schul-, Nutzer- oder Zugangsdaten dürfen nicht in öffentliche Repositories gelangen.
-
-## **📂 Aufbau des Programms**
-
-Der Programmcode liegt im Paket `tuerschild/`, aufgeteilt in Ebenen, die aufeinander aufbauen und nur nach unten greifen:
-
-| Modul | Aufgabe |
-|---|---|
-| `konstanten.py` | Feste Werte und Pfade, ohne Abhängigkeiten |
-| `zustand.py` | Datenstrukturen (`Lesson`, `TimedLesson`) und gemeinsamer Zustand |
-| `konfiguration.py` | `config.json` lesen und schreiben, Uhrzeit samt Simulation |
-| `hardware.py` | GPIO, I2C-Touch, Displaytreiber, Schriftarten |
-| `anzeige.py` | Layout und Zeichnen auf dem E-Paper |
-| `untis.py` | Abruf der Plandaten und Offline-Rücklage |
-| `web.py` | Flask-Oberfläche zur Administration |
-| `steuerung.py` | Hintergrundschleife, die alles zusammenführt |
-| `templates/dashboard.html` | Die HTML-Vorlage des Web-Interfaces |
-
-Das Zeichnen des Displays steht in `anzeige.zeichne_anzeige()` und ist vom Senden getrennt. Das Web-Interface benutzt dieselbe Funktion für seine Vorschau (`/vorschau.png`), fasst dabei aber keine Hardware an — es wird nur gezeichnet, nichts übertragen. Ein Aufruf ist deshalb auch bei arbeitendem Türschild harmlos.
-
-Die Vorlage lag früher als 232-zeilige Zeichenkette in `web.py` — ein Zugeständnis an die Installation per Copy&Paste einer einzigen Datei. Seit der Aufteilung in ein Paket gilt das nicht mehr; als eigene Datei bekommt sie im Editor wieder Syntaxhervorhebung, und `web.py` enthält nur noch Programmcode.
-
-Die Systemuhr wird mitgeprüft. Das Gerät hat keine Echtzeituhr; ist der Zeitabgleich aus dem Netz nicht erreichbar, fragt es WebUntis nach dem falschen Tag und zeigt einen plausibel aussehenden Plan von gestern. `konfiguration.uhr_synchronisiert()` beantwortet das mit **drei** Werten — gestellt, nicht gestellt, oder *nicht feststellbar*, wenn die Zeit über einen anderen Dienst als `systemd-timesyncd` kommt. Nur der mittlere Fall führt zu einer Meldung: Eine Warnung, die auf fremden Anlagen dauerhaft dasteht und nicht stimmt, liest nach drei Tagen niemand mehr. Näheres in der [Installationsanleitung](./Installationsanleitung.md), Schritt 10.
-
-Die Hintergrundschleife in `steuerung.py` besteht aus benannten Schritten (`aktualisierungszeitpunkte`, `ist_schulzeit`, `pruefe_beruehrung`, `hole_anzeigedaten`, `zeichnen_ueberspringen`, `aktualisiere_anzeige`) und einem Durchgang, der sie aneinanderreiht (`ein_durchlauf`). `background_loop()` selbst enthält nur noch das Abbruchsignal und das Auffangnetz. Vorher war das ein einziger Block von rund 170 Zeilen — prüfen ließ sich davon nur, was am Ende auf dem Display landete, und zwar über einen echten Thread mit echten Wartezeiten. Die Entprellung der Berührung und die E-Paper-Schonung blieben deshalb ungeprüft, ausgerechnet die beiden Stellen, an denen ein Fehler Verschleiß am Panel bedeutet. Als einzelne Funktionen sind sie ohne Thread aufrufbar; `tests/test_schleifenschritte.py` hält ihre Zusicherungen fest.
-
-Gestartet wird weiterhin über `raumanzeige.py` im Projektverzeichnis — dort steht nur noch, was zum Starten und sauberen Beenden gehört.
-
-*Hinweis für Änderungen:* Soll in Tests eine Funktion ersetzt werden, muss das im **definierenden** Modul geschehen (etwa `tuerschild.hardware.epd2in13_V3`). Die Sammel-Importe in `tuerschild/__init__.py` sind Kopien der Verweise; ein Ersetzen dort träfe nur diese Kopie.
-
-### **Stundenraster aus WebUntis übernehmen**
+### Stundenraster aus WebUntis übernehmen
 
 Die Zeiten unter `SCHEDULE` müssen nicht abgetippt werden — WebUntis kennt den Zeitraster der Schule und gibt ihn über die Schnittstelle heraus (`getTimegridUnits`). Das Hilfsmittel `stundenraster_auslesen.py` holt ihn und schlägt daraus einen fertigen Block vor:
 
@@ -171,7 +169,14 @@ Zu beachten: Der Raster ist in WebUntis **pro Wochentag** hinterlegt, `SCHEDULE`
 
 *Das Türschild selbst ruft den Raster nicht ab.* `SCHEDULE` wird gerade dann gebraucht, wenn WebUntis nicht erreichbar ist — käme es aus dem Netz, stünde das Gerät beim ersten Start ohne Verbindung ohne Plan da. Aus demselben Grund ist das Skript eigenständig: Es bindet das Paket nicht ein und fasst deshalb auch keine Hardware an, läuft also gefahrlos bei arbeitendem Türschild.
 
-## **🔄 Aktualisieren**
+## Datenschutz und Sicherheit
+
+1. **Principle of Least Privilege (PoLP):** Der Webserver läuft aus Sicherheitsgründen als eingeschränkter Standardnutzer (pi) und nicht als root. Für systemkritische Befehle (Reboot/Shutdown) wird dem Nutzer über die /etc/sudoers punktuell eine isolierte Ausnahmegenehmigung erteilt.  
+2. **Dateirechte anpassen:** Stellen Sie sicher, dass die Zugangsdaten in der config.json vor dem unbefugten Auslesen durch andere lokale Benutzer geschützt sind. Führen Sie dazu auf dem System den Befehl chmod 600 config.json aus.  
+3. **Standard-Passwörter ändern:** Ändern Sie zwingend die voreingestellten Werte für ADMIN\_USER und ADMIN\_PASS in der config.json vor der ersten produktiven Inbetriebnahme im Netzwerk.  
+4. **Versionskontrolle (.gitignore):** Sollten Sie eigene Anpassungen an diesem Code-Repository vornehmen und dieses veröffentlichen wollen, stellen Sie sicher, dass die Datei config.json sowie etwaige Log-Dateien durch die .gitignore vom Upload ausgeschlossen sind. Reale Schul-, Nutzer- oder Zugangsdaten dürfen nicht in öffentliche Repositories gelangen.
+
+## Aktualisieren
 
 Ein neuer Programmstand wird mit `update.sh` eingespielt:
 
@@ -188,7 +193,7 @@ Zwei Schalter für Sonderfälle: `--ohne-tests` und `--ohne-neustart`.
 
 *Wird das Programm von Hand gestartet statt als Dienst* (etwa im Testbetrieb), sagt das Skript das und weist darauf hin, dass der laufende Prozess von Hand beendet und neu gestartet werden muss.
 
-## **🧪 Tests**
+## Tests
 
 Das Projekt bringt eine automatisierte Testsuite mit. Sie prüft die Logik des Programms — Stundenauswahl, Offline-Rücklage, Textlayout, Konfigurationsgrenzen und deren Prüfung, die Meldung bei anhaltenden Störungen sowie Anmeldung und CSRF-Schutz des Web-Interfaces.
 
@@ -211,6 +216,57 @@ Der sinnvolle Zeitpunkt dafür ist **nach einem `git pull` und vor dem Neustart 
 
 *Was die Tests nicht abdecken:* Die Hardware selbst — SPI-Übertragung, I2C-Touch und das tatsächliche Erscheinungsbild auf dem Panel. Dafür bleiben der Testlauf-Knopf im Web-Interface und der Blick auf das Schild.
 
-## **📝 Lizenz & Nutzung**
 
-Dieses Projekt ist Open Source und steht unter der [MIT-Lizenz](./LICENSE). Dieses Projekt kann für den schulischen und edukativen Bereich frei genutzt, modifiziert und weiterentwickelt werden. Ideal geeignet als Praxisprojekt für den Informatikunterricht\! 
+## Aufbau des Programms
+
+Der Programmcode liegt im Paket `tuerschild/`, aufgeteilt in Ebenen, die aufeinander aufbauen und nur nach unten greifen:
+
+| Modul | Aufgabe |
+|---|---|
+| `konstanten.py` | Feste Werte und Pfade, ohne Abhängigkeiten |
+| `zustand.py` | Datenstrukturen (`Lesson`, `TimedLesson`) und gemeinsamer Zustand |
+| `konfiguration.py` | `config.json` lesen und schreiben, Uhrzeit samt Simulation |
+| `hardware.py` | GPIO, I2C-Touch, Displaytreiber, Schriftarten |
+| `anzeige.py` | Layout und Zeichnen auf dem E-Paper |
+| `untis.py` | Abruf der Plandaten und Offline-Rücklage |
+| `web.py` | Flask-Oberfläche zur Administration |
+| `steuerung.py` | Hintergrundschleife, die alles zusammenführt |
+| `templates/dashboard.html` | Die HTML-Vorlage des Web-Interfaces |
+
+Das Zeichnen des Displays steht in `anzeige.zeichne_anzeige()` und ist vom Senden getrennt. Das Web-Interface benutzt dieselbe Funktion für seine Vorschau (`/vorschau.png`), fasst dabei aber keine Hardware an — es wird nur gezeichnet, nichts übertragen. Ein Aufruf ist deshalb auch bei arbeitendem Türschild harmlos.
+
+Die Vorlage lag früher als 232-zeilige Zeichenkette in `web.py` — ein Zugeständnis an die Installation per Copy&Paste einer einzigen Datei. Seit der Aufteilung in ein Paket gilt das nicht mehr; als eigene Datei bekommt sie im Editor wieder Syntaxhervorhebung, und `web.py` enthält nur noch Programmcode.
+
+Die Hintergrundschleife in `steuerung.py` besteht aus benannten Schritten (`aktualisierungszeitpunkte`, `ist_schulzeit`, `pruefe_beruehrung`, `hole_anzeigedaten`, `zeichnen_ueberspringen`, `aktualisiere_anzeige`) und einem Durchgang, der sie aneinanderreiht (`ein_durchlauf`). `background_loop()` selbst enthält nur noch das Abbruchsignal und das Auffangnetz. Vorher war das ein einziger Block von rund 170 Zeilen — prüfen ließ sich davon nur, was am Ende auf dem Display landete, und zwar über einen echten Thread mit echten Wartezeiten. Die Entprellung der Berührung und die E-Paper-Schonung blieben deshalb ungeprüft, ausgerechnet die beiden Stellen, an denen ein Fehler Verschleiß am Panel bedeutet. Als einzelne Funktionen sind sie ohne Thread aufrufbar; `tests/test_schleifenschritte.py` hält ihre Zusicherungen fest.
+
+Gestartet wird weiterhin über `raumanzeige.py` im Projektverzeichnis — dort steht nur noch, was zum Starten und sauberen Beenden gehört.
+
+*Hinweis für Änderungen:* Soll in Tests eine Funktion ersetzt werden, muss das im **definierenden** Modul geschehen (etwa `tuerschild.hardware.epd2in13_V3`). Die Sammel-Importe in `tuerschild/__init__.py` sind Kopien der Verweise; ein Ersetzen dort träfe nur diese Kopie.
+
+## Verwendete Komponenten
+
+Das Projekt baut auf einer Reihe von Systempaketen und Python-Bibliotheken auf:
+
+**System-Pakete (Raspberry Pi OS / Debian):**
+
+* `python3-pip`, `python3-venv`, `git`: Grundlegende Werkzeuge für die Python-Umgebung und Versionskontrolle.
+* `libopenjp2-7`, `libtiff-dev`, `libxcb1`: Systembibliotheken, die für die Bildverarbeitung auf dem E-Paper-Display zwingend erforderlich sind.
+* `i2c-tools`: Werkzeuge zur Diagnose und Kommunikation mit dem Touch-Controller.
+* `fonts-dejavu`: Lokale Schriftarten für eine saubere, skalierbare Textdarstellung.
+* `nginx`, `openssl`: Bereitstellung der sicheren HTTPS-Verbindung (Reverse Proxy).
+
+**Python-Bibliotheken:**
+
+Die exakten, getesteten Versionen sind in der Datei [`requirements.txt`](./requirements.txt) hinterlegt und werden mit `pip install -r requirements.txt` installiert.
+
+
+* [**python-webuntis**](https://github.com/python-webuntis/python-webuntis): Schnittstelle zur WebUntis-API.
+* [**Pillow (PIL)**](https://python-pillow.github.io/): Generierung des Bildmaterials und des Layouts für das Display.
+* [**Flask**](https://flask.palletsprojects.com/) & [**Waitress**](https://docs.pylonsproject.org/projects/waitress/): Bereitstellung des lokalen Web-Interfaces.
+* [**Waveshare e-Paper**](https://github.com/waveshareteam/e-Paper): Die offiziellen Hardware-Treiber (SPI). Diese werden separat geklont und dabei auf einen geprüften Commit festgelegt.
+* [**gpiozero**](https://gpiozero.readthedocs.io/) & [**lgpio**](https://pypi.org/project/lgpio/): Werden von aktuellen Fassungen des Waveshare-Treibers zur Ansteuerung der GPIO-Pins vorausgesetzt.
+* [**smbus2**](https://pypi.org/project/smbus2/): Direkte I2C-Kommunikation mit dem kapazitiven Touch-Controller.
+
+## Lizenz
+
+Dieses Projekt ist Open Source und steht unter der [MIT-Lizenz](./LICENSE). Es kann für den schulischen und edukativen Bereich frei genutzt, verändert und weiterentwickelt werden.
