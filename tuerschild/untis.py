@@ -315,9 +315,20 @@ def ist_ferien_fehler(fehler: Exception) -> bool:
     sondern antwortet mit einem Fehler. Fuer das Schild ist das keine Stoerung,
     sondern schlicht: Ferien.
     """
+    # Die Bibliothek kennt fuer "dieses Datum ist gesperrt" eine eigene
+    # Fehlerklasse (WebUntis-Codes -7004 und -8507). Das ist die sichere Spur.
+    if isinstance(fehler, webuntis.errors.DateNotAllowed):
+        return True
+
+    # Die Stichworte bleiben als Absicherung fuer Server, die den Fehler ohne
+    # Code melden. Frueher genuegte schon das blosse Wort "date" - das steckt
+    # aber auch in "update" oder "invalid date format", und dann stand mitten
+    # in der Schulwoche "Ferienzeit" an der Tuer, ohne dass eine Stoerung
+    # gemeldet wurde.
     text = str(fehler).lower()
     return any(hinweis in text for hinweis in
-               ("schoolyear", "schuljahr", "no valid", "date", "notallowed"))
+               ("schoolyear", "schuljahr", "date out of range",
+                "no allowed date", "notallowed"))
 
 def hole_stundenplan(session, raum, tag):
     """
@@ -441,6 +452,12 @@ def get_current_lesson(conf: Dict[str, Any]) -> Tuple[Optional[Dict[str, Optiona
         # Hier geben wir je nach Fehlerbild sprechende Strings an das E-Paper zurück.
         error_msg = str(e)
         logging.error(f"WebUntis API Fehler: {error_msg}")
+        # Ein falsches Passwort meldet die Bibliothek als eigene Fehlerklasse.
+        # Ihr Text ("bad credentials") enthaelt keines der Stichworte unten -
+        # ohne diese Abfrage galt es deshalb als "WebUntis offline", also als
+        # voruebergehende Stoerung, und die Offline-Ruecklage verdeckte es.
+        if isinstance(e, webuntis.errors.BadCredentialsError):
+            return None, "Untis-Login falsch"
         if "HTTPSConnectionPool" in error_msg or "NameResolutionError" in error_msg or "Max retries" in error_msg or "timeout" in error_msg.lower():
             return None, ERR_NO_NETWORK
         elif "LoginError" in error_msg or "Unauthorized" in error_msg:

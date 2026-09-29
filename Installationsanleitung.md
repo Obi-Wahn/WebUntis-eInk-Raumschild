@@ -258,7 +258,7 @@ und in einer zweiten Sitzung:
 
 sudo nmcli device disconnect wlan0
 
-Innerhalb von zwei Minuten muss im Journal „Keine IPv4-Adresse … — neuer Verbindungsversuch." und kurz darauf „Verbindung wiederhergestellt." stehen. Bleibt das aus, ist der Zeitgeber nicht aktiv (`systemctl list-timers tuerschild-wlan-waechter.timer`) oder der Pfad in `ExecStart` stimmt nicht.
+Innerhalb von zwei Minuten muss im Journal „Keine IPv4-Adresse auf wlan0 - neuer Verbindungsversuch." und kurz darauf „Verbindung wiederhergestellt." stehen. Bleibt das aus, ist der Zeitgeber nicht aktiv (`systemctl list-timers tuerschild-wlan-waechter.timer`) oder der Pfad in `ExecStart` stimmt nicht.
 
 ## **10. Zeitabgleich prüfen**
 

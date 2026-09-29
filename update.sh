@@ -33,6 +33,10 @@ set -u
 DIENST="raumanzeige.service"
 VENV="webuntis"
 
+# Merkzettel: der Stand, mit dem der Dienst zuletzt erfolgreich neu gestartet
+# wurde. Er steht in der .gitignore und wird nur von diesem Skript geschrieben.
+LAUFEND_DATEI=".update-laufender-stand"
+
 TESTS_AUSFUEHREN=1
 NEUSTART_AUSFUEHREN=1
 
@@ -88,10 +92,29 @@ fi
 
 STAND_NACHHER="$(git rev-parse HEAD)"
 
-if [ "$STAND_VORHER" = "$STAND_NACHHER" ]; then
+# WARUM NICHT NUR VORHER UND NACHHER VERGLICHEN WIRD:
+# Unterblieb beim letzten Lauf der Neustart (Tests rot, --ohne-neustart,
+# Abbruch bei pip), ist der neue Stand zwar schon auf der Platte, der Dienst
+# laeuft aber noch mit dem alten. Ein zweiter Lauf fand dann nichts Neues zum
+# Herunterladen, meldete "nichts zu tun" - und der alte Stand lief unbemerkt
+# weiter. Verglichen wird deshalb auch mit dem Stand, der wirklich laeuft.
+STAND_LAUFEND="$STAND_VORHER"
+if [ -f "$LAUFEND_DATEI" ]; then
+    GEMERKT="$(cat "$LAUFEND_DATEI")"
+    if git cat-file -e "${GEMERKT}^{commit}" 2> /dev/null; then
+        STAND_LAUFEND="$GEMERKT"
+    fi
+fi
+
+if [ "$STAND_LAUFEND" = "$STAND_NACHHER" ]; then
     echo
     echo "Bereits auf dem neuesten Stand. Es gibt nichts zu tun."
     exit 0
+fi
+
+if [ "$STAND_VORHER" = "$STAND_NACHHER" ]; then
+    echo "      Nichts Neues heruntergeladen, aber der Dienst lief zuletzt mit"
+    echo "      $STAND_LAUFEND - der Neustart wird nachgeholt."
 fi
 
 if [ ! -f "$VENV/bin/activate" ]; then
@@ -103,7 +126,7 @@ source "$VENV/bin/activate"
 echo "[3/5] Abhängigkeiten prüfen..."
 # Nur nachinstallieren, wenn sich wirklich etwas geändert hat. Ein pip-Lauf
 # dauert auf einem Pi Zero mehrere Minuten und lohnt sich sonst nicht.
-GEAENDERT="$(git diff --name-only "$STAND_VORHER" "$STAND_NACHHER")"
+GEAENDERT="$(git diff --name-only "$STAND_LAUFEND" "$STAND_NACHHER")"
 if echo "$GEAENDERT" | grep -qx "requirements.txt"; then
     echo "      requirements.txt hat sich geändert - installiere nach."
     if ! pip install -r requirements.txt; then
@@ -135,7 +158,10 @@ else
         echo "[FEHLER] Die Tests sind fehlgeschlagen. Der Dienst wurde NICHT"
         echo "         neu gestartet und läuft weiter mit dem alten Stand im"
         echo "         Speicher. Zum Zurückrollen:"
-        echo "           git checkout $STAND_VORHER"
+        echo "           git reset --hard $STAND_LAUFEND"
+        # 'reset' und nicht 'checkout': Mit checkout stuende das Projekt auf
+        # keinem Zweig mehr, und das naechste 'git pull' dieses Skripts
+        # schluege fehl - mit einer Meldung, die auf eine falsche Spur fuehrt.
         exit 1
     fi
 fi
@@ -161,6 +187,7 @@ else
     sleep 3
     if systemctl is-active --quiet "$DIENST"; then
         echo "      Läuft."
+        echo "$STAND_NACHHER" > "$LAUFEND_DATEI"
     else
         echo "[FEHLER] Der Dienst läuft nach dem Neustart nicht. Protokoll:"
         sudo journalctl -u "$DIENST" -n 20 --no-pager

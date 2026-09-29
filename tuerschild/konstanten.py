@@ -89,9 +89,10 @@ UI_REFRESH_SECONDS = MIN_UPDATE_SECONDS
 # Speichern geprueft.
 ROOM_NAME_MAX_LEN = 40
 
-# Grenzen fuer den Stundenplan aus dem Web-Formular. Sie halten Tippfehler
-# ("800" statt "8:00") und versehentlich eingefuegte Datenmengen ab, bevor sie
-# in der config.json landen.
+# Grenzen fuer den Stundenplan (SCHEDULE) in der config.json. Das
+# Web-Formular bearbeitet ihn nicht; geprueft wird beim Einlesen der von Hand
+# bearbeiteten Datei (pruefe_konfiguration). Die Grenzen fangen Tippfehler
+# ("800" statt "8:00") und versehentlich eingefuegte Datenmengen ab.
 DEFAULT_DAY_START = "07:55"
 DEFAULT_DAY_END = "15:30"
 SCHEDULE_MAX_LESSONS = 20       # mehr Stunden hat kein Schultag

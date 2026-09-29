@@ -51,8 +51,9 @@ def test_der_dienstname_passt_zur_installationsanleitung(skript):
 def test_das_venv_verzeichnis_passt_zur_installationsanleitung(skript):
     treffer = re.search(r'^VENV="([^"]+)"', skript, re.MULTILINE)
     assert treffer
-    with open(os.path.join(projektverzeichnis(), "start.sh"), encoding="utf-8") as datei:
-        assert treffer.group(1) in datei.read()
+    with open(os.path.join(projektverzeichnis(), "Installationsanleitung.md"),
+              encoding="utf-8") as datei:
+        assert f"python3 -m venv {treffer.group(1)}" in datei.read()
 
 
 def test_das_skript_ist_gegen_selbstaktualisierung_geschuetzt(skript):
@@ -83,3 +84,26 @@ def test_tests_laufen_vor_dem_neustart(skript):
     Andersherum stuende ein defekter Stand im Flur, bevor jemand es merkt.
     """
     assert skript.index("pytest -q") < skript.index("systemctl restart")
+
+
+def test_der_rueckroll_tipp_bleibt_auf_dem_zweig(skript):
+    """
+    'git checkout <commit>' loeste das Projekt vom Zweig. Das naechste
+    'git pull' dieses Skripts schlug dann fehl, mit einer Meldung, die auf
+    eine falsche Spur fuehrte.
+    """
+    assert "git reset --hard $STAND_LAUFEND" in skript
+    assert "git checkout $STAND" not in skript
+
+
+def test_ein_ausgelassener_neustart_wird_nachgeholt(skript):
+    """
+    Ohne Merkzettel meldete ein zweiter Lauf nach roten Tests "nichts zu tun",
+    und der Dienst lief unbemerkt mit dem alten Stand weiter.
+    """
+    assert re.search(r'^LAUFEND_DATEI="([^"]+)"', skript, re.MULTILINE)
+    # Geschrieben wird der Merkzettel erst, wenn der Dienst wirklich laeuft.
+    assert skript.index('echo "      Läuft."') < skript.index('> "$LAUFEND_DATEI"')
+    with open(os.path.join(projektverzeichnis(), ".gitignore"), encoding="utf-8") as datei:
+        assert ".update-laufender-stand" in datei.read(), \
+            "Sonst bricht der naechste Lauf wegen einer ungespeicherten Datei ab"

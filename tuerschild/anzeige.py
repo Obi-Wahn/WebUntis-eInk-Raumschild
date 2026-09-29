@@ -279,7 +279,7 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
     Funktion und zeigt Pixel fuer Pixel dasselbe Bild wie das Schild.
 
     'stale' markiert Daten, die aus der Offline-Rücklage stammen (WebUntis war
-    nicht erreichbar). In dem Fall setzen wir ein kleines Ausrufezeichen in die
+    nicht erreichbar). In dem Fall setzen wir ein kleines Warndreieck in die
     Kopfzeile: Der Plan stimmt sehr wahrscheinlich noch, könnte aber eine
     kurzfristige Änderung von heute nicht enthalten.
     """
@@ -303,7 +303,7 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
     now = get_now()
 
     # --- KOPFZEILE ---
-    # Von rechts nach links aufgebaut: erst das Ausrufezeichen, dann die
+    # Von rechts nach links aufgebaut: erst das Warndreieck, dann die
     # Uhrzeit, und der Raumname bekommt, was uebrig bleibt.
     #
     # WARUM NICHT MEHR MIT FESTEN X-WERTEN: Die Uhrzeit stand frueher starr auf
@@ -344,7 +344,11 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
         if curr_lesson:
             draw_lesson_block(draw, curr_lesson, UI_BLOCK_JETZT_Y, "JETZT:", f_small, f_reg, f_med)
         else:
-            draw.text((UI_MARGIN, UI_BLOCK_JETZT_Y + 8), message, font=f_large, fill=0)
+            # Gekuerzt wie alles andere auch: Pausennamen duerfen 30 Zeichen
+            # lang sein, in 18 Punkt passen aber nur etwa 17 - der Rest liefe
+            # rechts aus dem Bild.
+            meldung = truncate_to_width(draw, message, f_large, UI_WIDTH - 2 * UI_MARGIN)
+            draw.text((UI_MARGIN, UI_BLOCK_JETZT_Y + 8), meldung, font=f_large, fill=0)
 
         draw.line((UI_MARGIN, UI_LINE_Y, UI_WIDTH - UI_MARGIN, UI_LINE_Y), fill=0, width=1)
 

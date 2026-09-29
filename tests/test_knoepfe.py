@@ -16,10 +16,11 @@ Werden in /toggle zwei Zeilen vertauscht, schaltet der Knopf "Display" den
 Touch-Sensor. Die Seite funktioniert weiter, die Anmeldung greift weiter, und
 auffallen wuerde es erst im Flur.
 
-Die beiden Systemknoepfe (/sys_reboot, /sys_shutdown) bleiben bewusst
-ungetestet: Auf dem Raspberry Pi laesst update.sh diese Suite laufen, und dort
-ist die Sudoers-Regel fuer poweroff eingerichtet. Ein Test, der versehentlich
-durchlaeuft, faehrt das Geraet herunter.
+Die beiden Systemknoepfe (/sys_reboot, /sys_shutdown) werden nur mit
+ersetztem subprocess.run UND ersetztem Thread geprueft (Vorrichtung
+'ohne_sudo'): Auf dem Raspberry Pi laesst update.sh diese Suite laufen, und
+dort ist die Sudoers-Regel fuer poweroff eingerichtet. Ein Test, der
+versehentlich durchlaeuft, fuehre das Geraet herunter.
 """
 import pytest
 
@@ -223,3 +224,76 @@ def test_jeder_knopf_fuehrt_zurueck_aufs_dashboard(webclient, knopf, ohne_thread
     antwort = druecke(webclient[0], webclient[1], knopf)
     assert antwort.status_code == 302
     assert antwort.headers["Location"] == "/"
+
+
+# ==============================================================================
+# /sys_reboot und /sys_shutdown - NIE mit echtem sudo
+# ==============================================================================
+@pytest.fixture
+def ohne_sudo(monkeypatch, ohne_thread):
+    """
+    Ersetzt jeden Aufruf von sudo durch eine Attrappe mit festgelegter Antwort.
+    Zusammen mit 'ohne_thread' wird so garantiert nichts ausgefuehrt.
+    """
+    aufrufe = []
+    antwort = {"rueckgabe": 0}
+
+    class Ergebnis:
+        def __init__(self, code):
+            self.returncode = code
+
+    def schein_run(befehl, **kwargs):
+        aufrufe.append(befehl)
+        return Ergebnis(antwort["rueckgabe"])
+
+    monkeypatch.setattr(web.subprocess, "run", schein_run)
+    monkeypatch.setattr(web.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail(f"Systembefehl ausgefuehrt: {a}"))
+    monkeypatch.setattr(web.time, "sleep", lambda s: None)
+    return aufrufe, antwort
+
+
+@pytest.mark.parametrize("knopf,befehl", [("/sys_reboot", "/sbin/reboot"),
+                                          ("/sys_shutdown", "/sbin/poweroff")])
+def test_ohne_sudo_regel_meldet_der_knopf_einen_fehler(webclient, ohne_sudo,
+                                                       ohne_thread, knopf, befehl):
+    """
+    Frueher meldete die Seite "System startet neu" auch dann, wenn sudo den
+    Befehl gar nicht erlaubte - und die Anzeige war zu dem Zeitpunkt schon
+    angehalten.
+    """
+    client, kopf = webclient
+    aufrufe, antwort = ohne_sudo
+    antwort["rueckgabe"] = 1
+
+    ergebnis = druecke(client, kopf, knopf)
+
+    assert ergebnis.status_code == 500
+    assert "Schritt 11" in ergebnis.get_data(as_text=True)
+    assert aufrufe == [["/usr/bin/sudo", "-n", "-l", befehl]], "Nur gefragt, nichts ausgefuehrt"
+    assert ohne_thread == []
+    assert not R.app_state.shutdown_event.is_set()
+
+
+def test_mit_sudo_regel_wird_der_befehl_im_hintergrund_gestartet(webclient, ohne_sudo,
+                                                                 ohne_thread):
+    client, kopf = webclient
+
+    ergebnis = druecke(client, kopf, "/sys_reboot")
+
+    assert ergebnis.status_code == 200
+    assert ohne_thread == [web._systembefehl_ausfuehren]
+    assert not R.app_state.shutdown_event.is_set(), \
+        "Die Anzeige darf nicht angehalten werden, bevor der Befehl durch ist"
+
+
+def test_ein_fehlgeschlagener_befehl_haelt_das_schild_nicht_an(ohne_sudo):
+    """Schlaegt der Befehl selbst fehl, laeuft das Schild weiter und die Seite sagt es."""
+    aufrufe, antwort = ohne_sudo
+    antwort["rueckgabe"] = 1
+
+    web._systembefehl_ausfuehren("/sbin/reboot")
+
+    assert aufrufe == [["/usr/bin/sudo", "-n", "/sbin/reboot"]]
+    assert not R.app_state.shutdown_event.is_set()
+    assert "Schritt 11" in R.app_state.system_fehler
