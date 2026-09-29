@@ -191,7 +191,7 @@ def main():
         schreibe(f"Dieser Bericht steht in: {os.path.abspath(argumente.bericht)}")
         schreibe("Er enthaelt KEINE Zugangsdaten - kein Benutzername, kein Passwort.")
         schreibe("Enthalten sind Servername und Schulkuerzel sowie die Zeiten des")
-        schreibe("Stundenrasters. Bitte kurz durchsehen, bevor du ihn weitergibst.")
+        schreibe("Stundenrasters. Bitte kurz durchsehen, bevor Sie ihn weitergeben.")
         schreibe.schliessen()
 
 

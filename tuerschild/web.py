@@ -68,7 +68,15 @@ def check_auth(username, password) -> bool:
         return False
 
     u = conf.get('ADMIN_USER', 'admin')
-    saved_pass = conf.get('ADMIN_PASS', 'tuerschild')
+    saved_pass = conf.get('ADMIN_PASS')
+
+    # Ohne eingetragenes Passwort kein Zutritt. Frueher galt dann still die
+    # Vorgabe 'tuerschild' - ein Passwort, das nirgends dokumentiert war und
+    # das deshalb auch niemand geaendert haette.
+    if not isinstance(saved_pass, str) or not saved_pass:
+        logging.warning("ADMIN_PASS fehlt in der config.json - Anmeldung am "
+                        "Web-Interface nicht moeglich.")
+        return False
 
     if not saved_pass.startswith('scrypt:') and not saved_pass.startswith('pbkdf2:'):
         logging.info("Klartext-Passwort entdeckt. Wird verschlüsselt und gespeichert...")
@@ -266,6 +274,8 @@ def index():
         save_ok = app_state.save_ok
         app_state.save_error = None
         app_state.save_ok = False
+        system_fehler = app_state.system_fehler
+        app_state.system_fehler = None
 
     # Zeitstempel des letzten geglückten API-Abrufs (nur relevant, wenn wir
     # gerade aus der Offline-Rücklage anzeigen).
@@ -310,6 +320,7 @@ def index():
         stoerung_lang=stoerung_lang,
         save_error=save_error,
         save_ok=save_ok,
+        system_fehler=system_fehler,
         # Kein Selbstneuladen, solange eine Rückmeldung zum Speichern auf der
         # Seite steht: Sie würde weggezogen, bevor sie gelesen ist - und wer
         # gerade gespeichert hat, sitzt oft noch am Formular.
@@ -533,45 +544,96 @@ def toggle_touch():
             app_state.force_update_flag = True
     return redirect('/')
 
+def darf_systembefehl(befehl: str) -> bool:
+    """
+    Fragt sudo, ob 'befehl' ohne Passwort erlaubt ist - ohne ihn auszufuehren.
+
+    WARUM VORHER FRAGEN: Frueher kam die Antwort "System startet neu" in jedem
+    Fall, und erst Sekunden spaeter zeigte sich, ob sudo den Befehl ueberhaupt
+    annimmt. Fehlte die Regel aus der Installationsanleitung (Schritt 11),
+    passierte nichts - die Seite hatte aber Erfolg gemeldet.
+
+    'sudo -n -l BEFEHL' listet nur und fuehrt nichts aus. Die Antwort ist nicht
+    ganz verlaesslich: Wer ueber die Gruppe sudo ohnehin alles darf (mit
+    Passwort), bekommt hier ebenfalls ein Ja. Deshalb prueft der Aufruf selbst
+    das Ergebnis noch einmal (siehe _systembefehl_ausfuehren).
+    """
+    try:
+        ergebnis = subprocess.run(["/usr/bin/sudo", "-n", "-l", befehl],
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as fehler:
+        logging.error(f"sudo nicht aufrufbar: {fehler}")
+        return False
+    return ergebnis.returncode == 0
+
+
+def _systembefehl_ausfuehren(befehl: str) -> None:
+    """
+    Fuehrt den Befehl nach kurzer Wartezeit aus und wertet das Ergebnis aus.
+
+    Die Wartezeit laesst die Antwort noch beim Browser ankommen.
+
+    WARUM DIE HINTERGRUNDSCHLEIFE NICHT VORHER ANGEHALTEN WIRD: Frueher wurde
+    sie gestoppt, bevor feststand, ob der Befehl ueberhaupt durchgeht. Schlug
+    er fehl, blieb das Schild eingefroren, waehrend die Seite weiterlief. Beim
+    echten Neustart haelt systemd den Dienst ohnehin selbst an, und
+    raumanzeige.py raeumt das Display dabei auf.
+    """
+    time.sleep(2.5)
+    try:
+        ergebnis = subprocess.run(["/usr/bin/sudo", "-n", befehl], timeout=60)
+        fehler = None if ergebnis.returncode == 0 else f"Rückgabewert {ergebnis.returncode}"
+    except (OSError, subprocess.TimeoutExpired) as ausnahme:
+        fehler = str(ausnahme)
+    if fehler:
+        logging.error(f"Systembefehl {befehl} fehlgeschlagen ({fehler}). "
+                      "Das Schild arbeitet weiter.")
+        with app_state.state_lock:
+            app_state.system_fehler = (f"{befehl} ist fehlgeschlagen ({fehler}). "
+                                       "Bitte die Sudoers-Regel prüfen "
+                                       "(Installationsanleitung, Schritt 11).")
+
+
+def _systembefehl(befehl: str, protokoll: str, antwort: str):
+    """Gemeinsamer Ablauf fuer Neustart und Herunterfahren."""
+    if not darf_systembefehl(befehl):
+        logging.error(f"{befehl} ist fuer diesen Benutzer nicht ohne Passwort "
+                      "erlaubt - Knopf ohne Wirkung.")
+        return (f"{befehl} ist nicht erlaubt. Das Türschild läuft weiter. "
+                "Bitte die Sudoers-Regel einrichten (Installationsanleitung, "
+                "Schritt 11)."), 500
+
+    logging.info(protokoll)
+    threading.Thread(target=_systembefehl_ausfuehren, args=(befehl,),
+                     daemon=True).start()
+    return antwort, 200
+
+
 @app.route('/sys_reboot', methods=['POST'])
 @requires_auth
 @verify_csrf
 def sys_reboot():
     """
-    Startet das System über den Linux-Befehl 'reboot' neu.
-    
-    TECHNISCHER HINTERGRUND (PoLP & Fire and Forget):
-    1. PoLP (Prinzip der geringsten Privilegien): Der Nutzer 'pi' hat über die 
-       /etc/sudoers eine Ausnahmegenehmigung erhalten, diesen EINEN Befehl ohne 
-       Passwortabfrage auszuführen.
-    2. Fire & Forget: Popen() startet den Befehl als losgelösten Unterprozess. 
-       Das ermöglicht es Flask, sofort eine HTTP 200 Erfolgsmeldung an den Browser 
-       zurückzusenden, BEVOR das System tatsächlich neustartet und blockiert.
+    Startet das System ueber den Linux-Befehl 'reboot' neu.
+
+    TECHNISCHER HINTERGRUND (PoLP): Der Dienstbenutzer hat ueber /etc/sudoers
+    eine Ausnahmegenehmigung erhalten, genau diesen Befehl ohne Passwortabfrage
+    auszufuehren (Installationsanleitung, Schritt 11).
     """
-    logging.info("Web-Kommando empfangen: System wird neu gestartet.")
-    app_state.shutdown_event.set() 
-    
-    def delayed_reboot():
-        time.sleep(2.5)
-        subprocess.Popen(["/usr/bin/sudo", "-n", "/sbin/reboot"])
-        
-    threading.Thread(target=delayed_reboot, daemon=True).start()
-    return "System startet neu. Bitte haben Sie einen Moment Geduld...", 200
+    return _systembefehl("/sbin/reboot",
+                         "Web-Kommando empfangen: System wird neu gestartet.",
+                         "System startet neu. Bitte haben Sie einen Moment Geduld...")
 
 @app.route('/sys_shutdown', methods=['POST'])
 @requires_auth
 @verify_csrf
 def sys_shutdown():
-    """Fährt das System sicher herunter (Shutdown)."""
-    logging.info("Web-Kommando empfangen: System fährt herunter.")
-    app_state.shutdown_event.set() 
-    
-    def delayed_shutdown():
-        time.sleep(2.5)
-        subprocess.Popen(["/usr/bin/sudo", "-n", "/sbin/poweroff"])
-        
-    threading.Thread(target=delayed_shutdown, daemon=True).start()
-    return "System fährt herunter. Sie können den Strom in ca. 10 Sekunden sicher trennen.", 200
+    """Faehrt das System sicher herunter (Shutdown)."""
+    return _systembefehl("/sbin/poweroff",
+                         "Web-Kommando empfangen: System fährt herunter.",
+                         "System fährt herunter. Sie können den Strom in ca. 10 "
+                         "Sekunden sicher trennen.")
 
 
 # ==============================================================================

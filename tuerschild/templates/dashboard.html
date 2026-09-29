@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
-    {# Die Seite wird serverseitig gebaut und hat kein JavaScript. Ohne dieses
+    {# Die Seite wird serverseitig gebaut; JavaScript steckt nur in den beiden
+       Sicherheitsabfragen vor Neustart und Herunterfahren. Ohne dieses
        Tag zeigte ein offen gelassener Tab bis in alle Ewigkeit den Zustand von
        damals - Vorschaubild wie Statusliste. Der Browser lädt jetzt selbst
        nach. Fehlt refresh_sekunden, bleibt es beim Verhalten von früher. #}
@@ -247,6 +248,10 @@
                 <div class="error-msg">Konfigurationsfehler! Die Datei 'config.json' konnte nicht gelesen werden.</div>
             {% endif %}
 
+            {% if system_fehler %}
+                <div class="error-msg">{{ system_fehler }}</div>
+            {% endif %}
+
             {% if save_error %}
                 <div class="error-msg">Nicht gespeichert: {{ save_error }}</div>
             {% elif save_ok %}
@@ -402,7 +407,7 @@
                         </form>
                         <form action="/test_all" method="POST" class="inline-form btn-full">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="btn btn-test">Display-Testlauf (ca. 30 Sek)</button>
+                            <button type="submit" class="btn btn-test">Display-Testlauf (ca. 1 Min.)</button>
                         </form>
                     </div>
 

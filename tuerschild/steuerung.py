@@ -94,7 +94,7 @@ def testlauf_szenarien(plan=None):
 
     WARUM NICHT EINFACH DER ECHTE PLAN: Ein gewoehnlicher Schultag enthaelt
     weder Ausfall noch Vertretung noch eine Klassenarbeit. Wer den Knopf
-    drueckt, um genau die zu pruefen, saehe sechsmal gewoehnlichen Unterricht.
+    drueckt, um genau die zu pruefen, saehe siebenmal gewoehnlichen Unterricht.
     Ausserdem waere jeder Durchlauf anders, und zwei Durchlaeufe liessen sich
     nicht mehr vergleichen.
 

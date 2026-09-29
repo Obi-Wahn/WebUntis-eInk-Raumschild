@@ -79,7 +79,7 @@ def test_die_html_vorlage_liegt_dort_wo_flask_sie_sucht():
 
 
 def test_einstiegspunkt_liegt_neben_dem_paket():
-    """raumanzeige.py wird von start.sh und vom systemd-Dienst aufgerufen."""
+    """raumanzeige.py wird vom systemd-Dienst aufgerufen."""
     assert os.path.isfile(os.path.join(projektverzeichnis(), "raumanzeige.py"))
 
 

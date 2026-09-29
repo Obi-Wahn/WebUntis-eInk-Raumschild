@@ -128,7 +128,8 @@ def get_update_interval(conf: Dict[str, Any]) -> int:
 
 
 # ------------------------------------------------------------------------------
-# Pruefung der Eingaben aus dem Web-Formular
+# Pruefung der Eingaben - aus dem Web-Formular (Raumname, Intervall) und aus
+# der von Hand bearbeiteten config.json (zusaetzlich der Stundenplan)
 # ------------------------------------------------------------------------------
 # WARUM DIE PRUEFUNG HIER LIEGT UND NICHT IN web.py:
 # Sie gehoert zur Konfiguration, nicht zur Oberflaeche. So laesst sie sich ohne

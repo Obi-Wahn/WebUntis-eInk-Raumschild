@@ -124,6 +124,9 @@ class AppState:
         # gehoert zu genau einem Speichervorgang.
         self.save_error: Optional[str] = None
         self.save_ok: bool = False
+        # Fehlgeschlagener Neustart/Herunterfahren aus dem Web-Interface. Wird
+        # wie die Speicher-Rueckmeldung einmal angezeigt und dann geleert.
+        self.system_fehler: Optional[str] = None
         
         # Security: Rate-Limiting gegen Brute-Force-Angriffe (IP -> {count, lockout_until})
         self.failed_logins: Dict[str, Dict[str, float]] = {}

@@ -19,6 +19,9 @@ venv/
 # Logs
 *.log
 
+# Merkzettel von update.sh: mit welchem Stand der Dienst zuletzt lief
+.update-laufender-stand
+
 # Bericht von stundenraster_auslesen.py (enthaelt Servername und Schulkuerzel)
 stundenraster_bericht.txt
 

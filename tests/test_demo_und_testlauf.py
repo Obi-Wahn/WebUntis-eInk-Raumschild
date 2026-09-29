@@ -150,7 +150,7 @@ def displayzeile(inhalt):
     Liest den Wert der Zeile "Display" aus der Statusliste.
 
     Bewusst nicht "Testlauf" in der ganzen Seite suchen: Das Wort steht dort
-    ohnehin, im Knopf "Display-Testlauf (ca. 30 Sek)". Eine solche Pruefung
+    ohnehin, im Knopf "Display-Testlauf (ca. 1 Min.)". Eine solche Pruefung
     bestuende auch dann, wenn die Statuszeile gar nichts anzeigte - sie hat
     diesen Test beim Schreiben schon einmal in die Irre gefuehrt.
     """
@@ -188,7 +188,7 @@ def test_ohne_testlauf_steht_dort_der_zustand_des_displays(webclient):
 # ==============================================================================
 # Die Zustaende bleiben fest - ein gewoehnlicher Schultag enthaelt weder Ausfall
 # noch Vertretung noch Klassenarbeit, und wer den Knopf drueckt, um genau die zu
-# pruefen, saehe sonst sechsmal gewoehnlichen Unterricht. Die NAMEN dagegen
+# pruefen, saehe sonst siebenmal gewoehnlichen Unterricht. Die NAMEN dagegen
 # sollen echt sein: Ihre Laenge entscheidet darueber, wo gekuerzt wird, und mit
 # erfundenen Namen sieht man die eigene engste Stelle nie.
 def plan_mit(*faecher):

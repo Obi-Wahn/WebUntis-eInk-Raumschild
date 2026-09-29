@@ -77,6 +77,19 @@ def test_kaputte_konfiguration_wird_beim_anmelden_nicht_ueberschrieben(tmp_path)
     assert pfad.read_text(encoding="utf-8") == inhalt
 
 
+def test_ohne_admin_passwort_gibt_es_keinen_zutritt(tmp_path):
+    """Frueher galt dann still das nirgends dokumentierte Passwort 'tuerschild'."""
+    pfad = tmp_path / "config.json"
+    pfad.write_text('{"ROOM_NAME": "R1", "ADMIN_USER": "admin"}', encoding="utf-8")
+    R.konfiguration.CONFIG_FILE = str(pfad)
+    R.app_state.last_config_mtime = 0
+    R.app_state.cached_config = {}
+
+    kopf = {"Authorization": "Basic " + base64.b64encode(b"admin:tuerschild").decode()}
+    assert R.app.test_client().get("/", headers=kopf).status_code == 401
+    assert "ADMIN_PASS" not in pfad.read_text(encoding="utf-8")
+
+
 def test_fehlende_angaben_werfen_keine_ausnahme():
     """check_password_hash(hash, None) wuerde ohne Absicherung abstuerzen."""
     assert R.check_auth(None, None) is False

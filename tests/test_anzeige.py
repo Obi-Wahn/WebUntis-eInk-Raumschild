@@ -588,3 +588,20 @@ def test_der_hinweiskasten_waechst_mit_dem_zeichen(conf, display_attrappe, monke
     breit = kastenbreite()
 
     assert breit > schmal + 10, f"Kasten wächst nicht mit: {schmal} -> {breit}"
+
+
+def test_langer_pausenname_laeuft_nicht_aus_dem_bild(conf):
+    """
+    Steht JETZT keine Stunde, aber DANACH eine, wird die Meldung (etwa der
+    Pausenname) gross oben geschrieben. Erlaubt sind 30 Zeichen - frueher lief
+    ein so langer Name rechts ueber den Rand.
+    """
+    danach = R.Lesson("Ma", "Mathematik", "Ab", "9B", "10:00 - 10:45",
+                      "3. Std.", None, "")
+    bild = R.zeichne_anzeige({"current": None, "next": danach},
+                             "Große Pause mit Hofaufsicht und", conf)
+
+    rand = range(R.UI_WIDTH - R.UI_MARGIN + 1, R.UI_WIDTH)
+    zeilen = range(R.UI_BLOCK_JETZT_Y, R.UI_LINE_Y)
+    schwarz = [(x, y) for x in rand for y in zeilen if bild.getpixel((x, y)) == 0]
+    assert not schwarz, f"Text reicht bis in den Rand: {schwarz[:3]}"

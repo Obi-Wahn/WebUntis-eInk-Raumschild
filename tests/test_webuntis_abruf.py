@@ -306,3 +306,16 @@ def test_gesperrter_kalender_wird_an_allen_bekannten_wortlauten_erkannt(text):
 
 def test_ein_gewoehnlicher_fehler_gilt_nicht_als_ferien():
     assert untis.ist_ferien_fehler(RuntimeError("connection reset")) is False
+
+
+def test_die_fehlerklasse_der_bibliothek_gilt_als_ferien():
+    assert untis.ist_ferien_fehler(
+        untis.webuntis.errors.DateNotAllowed("irgendein Text")) is True
+
+
+@pytest.mark.parametrize("text", ["update failed",
+                                  "invalid date format",
+                                  "candidate not found"])
+def test_das_blosse_wort_date_genuegt_nicht(text):
+    """Frueher stand bei jedem dieser Fehler "Ferienzeit" an der Tuer."""
+    assert untis.ist_ferien_fehler(RuntimeError(text)) is False
