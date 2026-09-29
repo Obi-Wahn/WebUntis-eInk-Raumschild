@@ -8,6 +8,7 @@ import json
 import os
 import socket
 import tempfile
+import time
 
 import tuerschild as R
 from tuerschild import konfiguration
@@ -113,6 +114,46 @@ def test_beschaedigte_datei_legt_das_programm_nicht_lahm():
     try:
         # Darf keine Ausnahme werfen, sondern liefert den letzten bekannten Stand
         assert isinstance(R.get_cached_config(), dict)
+    finally:
+        os.unlink(datei.name)
+
+
+def test_beschaedigte_datei_meldet_sich_nur_einmal(caplog):
+    """
+    Die Schleife fragt die Konfiguration zweimal pro Sekunde ab. Frueher
+    schrieb jeder dieser Aufrufe bei kaputter Datei dieselbe Fehlerzeile ins
+    Journal - bis der Kommafehler behoben war, zehntausende am Tag.
+    """
+    datei = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    datei.write("{ das ist kein gueltiges JSON")
+    datei.close()
+    konfiguration.CONFIG_FILE = datei.name
+    R.app_state.last_config_mtime = 0
+    R.app_state.cached_config = {}
+    try:
+        with caplog.at_level("ERROR"):
+            for _ in range(5):
+                R.get_cached_config()
+        fehlerzeilen = [z for z in caplog.records if "config.json" in z.getMessage()]
+        assert len(fehlerzeilen) == 1
+    finally:
+        os.unlink(datei.name)
+
+
+def test_behobene_datei_wird_wieder_gelesen():
+    """Die Sperre gegen Wiederholung darf das Beheben nicht verschlucken."""
+    datei = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    datei.write("{ kaputt")
+    datei.close()
+    konfiguration.CONFIG_FILE = datei.name
+    R.app_state.last_config_mtime = 0
+    R.app_state.cached_config = {}
+    try:
+        R.get_cached_config()
+        with open(datei.name, "w", encoding="utf-8") as f:
+            f.write('{"ROOM_NAME": "R1"}')
+        os.utime(datei.name, (time.time() + 5, time.time() + 5))
+        assert R.get_cached_config().get("ROOM_NAME") == "R1"
     finally:
         os.unlink(datei.name)
 

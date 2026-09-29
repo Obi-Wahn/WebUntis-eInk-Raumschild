@@ -47,6 +47,15 @@ def get_cached_config() -> Dict[str, Any]:
                 melde_konfigurationsfehler(app_state.cached_config)
         except Exception as e:
             logging.error(f"FEHLER beim Laden der config.json: {e}")
+            # Auch den fehlgeschlagenen Stand merken. Sonst versucht es der
+            # naechste Aufruf sofort wieder - die Schleife fragt zweimal pro
+            # Sekunde, und jeder Versuch schriebe dieselbe Fehlerzeile ins
+            # Journal. Nach dem Beheben aendert sich der Zeitstempel ohnehin.
+            # Bis dahin bleibt der zuletzt gueltige Stand in Kraft.
+            try:
+                app_state.last_config_mtime = os.path.getmtime(CONFIG_FILE)
+            except OSError:
+                pass
         # Wichtig: Eine Kopie des Dictionaries zurückgeben (dict()), 
         # damit Referenzverknüpfungen nicht versehentlich den Cache verändern.
         return dict(app_state.cached_config)

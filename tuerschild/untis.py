@@ -441,6 +441,12 @@ def get_current_lesson(conf: Dict[str, Any]) -> Tuple[Optional[Dict[str, Optiona
         # Hier geben wir je nach Fehlerbild sprechende Strings an das E-Paper zurück.
         error_msg = str(e)
         logging.error(f"WebUntis API Fehler: {error_msg}")
+        # Ein falsches Passwort meldet die Bibliothek als eigene Fehlerklasse.
+        # Ihr Text ("bad credentials") enthaelt keines der Stichworte unten -
+        # ohne diese Abfrage galt es deshalb als "WebUntis offline", also als
+        # voruebergehende Stoerung, und die Offline-Ruecklage verdeckte es.
+        if isinstance(e, webuntis.errors.BadCredentialsError):
+            return None, "Untis-Login falsch"
         if "HTTPSConnectionPool" in error_msg or "NameResolutionError" in error_msg or "Max retries" in error_msg or "timeout" in error_msg.lower():
             return None, ERR_NO_NETWORK
         elif "LoginError" in error_msg or "Unauthorized" in error_msg:

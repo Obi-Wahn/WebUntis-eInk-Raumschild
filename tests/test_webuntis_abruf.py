@@ -208,6 +208,20 @@ def test_falsche_zugangsdaten_werden_erkannt(sitzung, conf):
     assert meldung not in R.TRANSIENT_ERRORS
 
 
+def test_falsches_passwort_mit_echter_fehlerklasse(sitzung, conf):
+    """
+    So meldet die Bibliothek ein falsches Passwort tatsaechlich: eigene
+    Fehlerklasse, Text vom Server ohne das Wort "LoginError". Frueher wurde
+    das als "WebUntis offline" eingestuft und von der Ruecklage verdeckt.
+    """
+    sitzung(fehler_beim_login=untis.webuntis.errors.BadCredentialsError(
+        "bad credentials"))
+    daten, meldung = R.get_current_lesson(conf)
+
+    assert meldung == "Untis-Login falsch"
+    assert meldung not in R.TRANSIENT_ERRORS
+
+
 def test_gesperrter_kalender_gilt_als_ferienzeit(sitzung, conf):
     """WebUntis sperrt den Stundenplan ausserhalb des Schuljahres hart ab."""
     sitzung(fehler_beim_plan=Exception("no valid schoolyear found"))

@@ -279,7 +279,7 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
     Funktion und zeigt Pixel fuer Pixel dasselbe Bild wie das Schild.
 
     'stale' markiert Daten, die aus der Offline-Rücklage stammen (WebUntis war
-    nicht erreichbar). In dem Fall setzen wir ein kleines Ausrufezeichen in die
+    nicht erreichbar). In dem Fall setzen wir ein kleines Warndreieck in die
     Kopfzeile: Der Plan stimmt sehr wahrscheinlich noch, könnte aber eine
     kurzfristige Änderung von heute nicht enthalten.
     """
@@ -303,7 +303,7 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
     now = get_now()
 
     # --- KOPFZEILE ---
-    # Von rechts nach links aufgebaut: erst das Ausrufezeichen, dann die
+    # Von rechts nach links aufgebaut: erst das Warndreieck, dann die
     # Uhrzeit, und der Raumname bekommt, was uebrig bleibt.
     #
     # WARUM NICHT MEHR MIT FESTEN X-WERTEN: Die Uhrzeit stand frueher starr auf

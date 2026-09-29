@@ -58,6 +58,15 @@ def check_auth(username, password) -> bool:
     Antwortzeit ablesbar, ob der Benutzername existiert.
     """
     conf = get_cached_config()
+
+    # Ohne lesbare config.json gibt es nichts, wogegen geprueft werden kann.
+    # Frueher griff hier die Vorgabe 'tuerschild', und die Umwandlung darunter
+    # speicherte das leere Woerterbuch samt Hash: Ein einziger Kommafehler in
+    # der Datei und ein Anmeldeversuch genuegten, um die gesamte config.json
+    # durch eine Datei zu ersetzen, in der nur noch ADMIN_PASS stand.
+    if not conf:
+        return False
+
     u = conf.get('ADMIN_USER', 'admin')
     saved_pass = conf.get('ADMIN_PASS', 'tuerschild')
 

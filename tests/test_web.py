@@ -56,6 +56,27 @@ def test_klartextpasswort_wird_beim_ersten_login_gehasht(webclient):
     assert "geheim" not in gespeichert
 
 
+def test_kaputte_konfiguration_wird_beim_anmelden_nicht_ueberschrieben(tmp_path):
+    """
+    Ein Kommafehler in der config.json ergibt eine leere Konfiguration. Frueher
+    griff dann das Vorgabepasswort, und dessen Umwandlung in einen Hash
+    speicherte das leere Woerterbuch: Die ganze Datei war weg, nur ADMIN_PASS
+    blieb stehen - und die Anmeldung mit admin/tuerschild gelang.
+    """
+    pfad = tmp_path / "config.json"
+    inhalt = '{"ROOM_NAME": "R1", "ADMIN_PASS": "geheim",}'
+    pfad.write_text(inhalt, encoding="utf-8")
+    R.konfiguration.CONFIG_FILE = str(pfad)
+    R.app_state.last_config_mtime = 0
+    R.app_state.cached_config = {}
+
+    kopf = {"Authorization": "Basic " + base64.b64encode(b"admin:tuerschild").decode()}
+    antwort = R.app.test_client().get("/", headers=kopf)
+
+    assert antwort.status_code == 401
+    assert pfad.read_text(encoding="utf-8") == inhalt
+
+
 def test_fehlende_angaben_werfen_keine_ausnahme():
     """check_password_hash(hash, None) wuerde ohne Absicherung abstuerzen."""
     assert R.check_auth(None, None) is False
