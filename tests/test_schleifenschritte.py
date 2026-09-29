@@ -634,3 +634,103 @@ def test_der_knopf_wirkt_auch_nachts(conf, zustand, monkeypatch,
     ein_durchlauf(zustand)
 
     assert display_attrappe.anzahl_anzeigen == 1
+
+
+# ==============================================================================
+# Ruhetag - am Wochenende und in den Ferien einmal am Tag nachsehen
+# ==============================================================================
+@pytest.mark.parametrize("meldung, ruhe", [
+    ("Schönes Wochenende!", True),
+    ("Schöne Ferien!\n(Herbstferien)", True),
+    ("Unterrichtsfrei!\n(Ferienzeit)", True),
+    # Ein leerer Raum an einem Schultag kann noch belegt werden - etwa durch
+    # eine Vertretung, die hierher verlegt wird.
+    ("Unterrichtsfrei", False),
+    ("Raum ist frei", False),
+    (R.ERR_NO_NETWORK, False),
+])
+def test_welche_meldungen_die_abfrage_ruhen_lassen(meldung, ruhe):
+    assert steuerung.ist_ruhetag(meldung) is ruhe
+
+
+def _wochenende(monkeypatch, abrufe):
+    def abruf(conf):
+        abrufe.append(1)
+        return {"current": None, "next": None}, "Schönes Wochenende!"
+    monkeypatch.setattr(steuerung, "get_current_lesson", abruf)
+
+
+def test_am_wochenende_wird_nur_einmal_abgerufen(conf, zustand, monkeypatch,
+                                                  display_attrappe, ohne_warten):
+    """
+    Frueher meldete sich das Schild auch samstags tagsueber alle 15 Minuten
+    und zu jeder Stundenzeit bei WebUntis an - fuer immer dieselbe Antwort.
+    """
+    abrufe = []
+    _wochenende(monkeypatch, abrufe)
+    monkeypatch.setattr(steuerung, "get_cached_config", lambda: conf)
+    monkeypatch.setattr(steuerung, "get_update_interval", lambda c: 0)
+    zeit = [uhrzeit(8, 0)]
+    monkeypatch.setattr(steuerung, "get_now", lambda: zeit[0])
+    R.app_state.force_update_flag = False
+
+    ein_durchlauf(zustand)                 # Intervall faellig: erster Abruf
+    for stunde, minute in ((9, 55), (10, 40), (12, 0)):   # Stundenzeiten
+        zeit[0] = uhrzeit(stunde, minute)
+        ein_durchlauf(zustand)
+
+    assert abrufe == [1]
+    assert display_attrappe.anzahl_anzeigen == 1
+
+
+def test_am_naechsten_morgen_wird_wieder_nachgesehen(conf, zustand, monkeypatch,
+                                                      display_attrappe, ohne_warten):
+    """Ob Montag wieder Schule ist, erfaehrt das Schild nur durch Nachfragen."""
+    abrufe = []
+    _wochenende(monkeypatch, abrufe)
+    monkeypatch.setattr(steuerung, "get_cached_config", lambda: conf)
+    monkeypatch.setattr(steuerung, "get_update_interval", lambda c: 0)
+    zeit = [uhrzeit(8, 0)]
+    monkeypatch.setattr(steuerung, "get_now", lambda: zeit[0])
+    R.app_state.force_update_flag = False
+
+    ein_durchlauf(zustand)
+    zeit[0] = uhrzeit(8, 0) + datetime.timedelta(days=1)
+    ein_durchlauf(zustand)
+
+    assert abrufe == [1, 1]
+
+
+def test_der_knopf_wirkt_auch_am_ruhetag(conf, zustand, monkeypatch,
+                                          display_attrappe, ohne_warten):
+    """Beruehrung und Web-Knopf holen weiterhin sofort neu."""
+    abrufe = []
+    _wochenende(monkeypatch, abrufe)
+    monkeypatch.setattr(steuerung, "get_cached_config", lambda: conf)
+    monkeypatch.setattr(steuerung, "get_now", lambda: uhrzeit(10, 0))
+    R.app_state.force_update_flag = True
+    ein_durchlauf(zustand)
+
+    R.app_state.force_update_flag = True
+    ein_durchlauf(zustand)
+
+    assert abrufe == [1, 1]
+
+
+def test_ein_leerer_raum_am_schultag_wird_weiter_abgefragt(conf, zustand, monkeypatch,
+                                                            display_attrappe, ohne_warten):
+    abrufe = []
+
+    def abruf(c):
+        abrufe.append(1)
+        return {"current": None, "next": None}, "Unterrichtsfrei"
+    monkeypatch.setattr(steuerung, "get_current_lesson", abruf)
+    monkeypatch.setattr(steuerung, "get_cached_config", lambda: conf)
+    monkeypatch.setattr(steuerung, "get_update_interval", lambda c: 0)
+    monkeypatch.setattr(steuerung, "get_now", lambda: uhrzeit(10, 0))
+    R.app_state.force_update_flag = False
+
+    ein_durchlauf(zustand)
+    ein_durchlauf(zustand)
+
+    assert abrufe == [1, 1]

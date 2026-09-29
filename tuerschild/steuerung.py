@@ -311,6 +311,9 @@ class Schleifenzustand:
     # None = noch unbekannt. Dadurch wird beim ersten Durchlauf mit
     # abgeschaltetem Display einmal geloescht, danach nicht mehr.
     display_war_aktiv: Optional[bool] = None
+    # Tag, fuer den WebUntis zuletzt Wochenende oder Ferien gemeldet hat
+    # ("2026-08-29"). An diesem Tag ruht die selbsttaetige Abfrage.
+    ruhetag: Optional[str] = None
 
 
 def aktualisierungszeitpunkte(schedule: dict) -> set:
@@ -455,6 +458,20 @@ def ist_statischer_tag(err) -> bool:
             or (isinstance(err, str) and "Ferien" in err))
 
 
+def ist_ruhetag(err) -> bool:
+    """
+    Sagt, ob die Meldung fuer Wochenende oder Ferien steht.
+
+    Enger als ist_statischer_tag(): "Unterrichtsfrei" zaehlt hier NICHT mit.
+    Das heisst nur, dass fuer diesen Raum heute nichts eingetragen ist - an
+    einem Schultag kann sich das noch aendern, etwa durch eine Vertretung,
+    die in den Raum verlegt wird. Am Wochenende und in den Ferien dagegen
+    kommt vor morgen nichts mehr dazu.
+    """
+    return (err == "Schönes Wochenende!"
+            or (isinstance(err, str) and "Ferien" in err))
+
+
 def zeichnen_ueberspringen(zustand: Schleifenzustand, err, datum: str,
                            ist_manuell: bool) -> bool:
     """
@@ -502,6 +519,10 @@ def aktualisiere_anzeige(conf: dict, zustand: Schleifenzustand,
             app_state.data_is_stale = ist_veraltet
 
         datum = current_dt.strftime("%Y-%m-%d")
+        # Wochenende oder Ferien: Fuer den Rest des Tages ruht die
+        # selbsttaetige Abfrage (siehe ein_durchlauf). Am naechsten Morgen
+        # wird einmal nachgesehen, ob es dabei bleibt.
+        zustand.ruhetag = datum if ist_ruhetag(err) else None
         if not zeichnen_ueberspringen(zustand, err, datum, ist_manuell):
             update_display_logic(data, err, conf, stale=ist_veraltet)
     else:
@@ -555,6 +576,17 @@ def ein_durchlauf(zustand: Schleifenzustand) -> None:
     is_exact_time = (current_hm in zeitpunkte) and (zustand.letzte_ausloesende_minute != current_hm)
     is_interval_reached = (now_time_system - zustand.letztes_update
                            >= get_update_interval(conf)) and schulzeit
+
+    # RUHETAG: Hat WebUntis fuer heute schon Wochenende oder Ferien gemeldet,
+    # fragen weder das Intervall noch die Stundenzeiten erneut nach. Ohne das
+    # meldete sich das Schild auch samstags den ganzen Tag alle 15 Minuten
+    # an, nur um jedes Mal dieselbe Antwort zu bekommen. Beruehrung und
+    # Knopf im Web-Interface holen weiterhin sofort neu. Mit dem Datumswechsel
+    # endet die Ruhe von selbst: Die erste Abfrage des neuen Tages sieht nach,
+    # ob noch Wochenende oder Ferien sind.
+    if zustand.ruhetag == current_dt.strftime("%Y-%m-%d"):
+        is_exact_time = False
+        is_interval_reached = False
 
     if not (ist_manuell or is_interval_reached or is_exact_time):
         # Kurze Pause verhindert CPU-Spam (100% Auslastung)
