@@ -23,12 +23,15 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .anzeige import sichtbare_raumzeichen, zeichne_anzeige
 from .konfiguration import (formatiere_dauer, get_cached_config, get_now,
-                            get_update_interval, pruefe_intervall,
-                            pruefe_raumname, save_config, uhr_synchronisiert)
+                            get_update_interval, ist_lehrermodus,
+                            pruefe_intervall, pruefe_lehrername, pruefe_modus,
+                            pruefe_raumname, save_config, schildname,
+                            uhr_synchronisiert)
 from .konstanten import (FAILED_LOGIN_MAX, FAILED_LOGIN_TTL,
                          LOGIN_LOCKOUT_SECONDS,
                          MAX_LOGIN_ATTEMPTS, MAX_UPDATE_SECONDS,
-                         MIN_UPDATE_SECONDS, ROOM_NAME_MAX_LEN,
+                         MIN_UPDATE_SECONDS, MODUS_LEHRER, MODUS_RAUM,
+                         ROOM_NAME_MAX_LEN,
                          STALE_ALERT_SECONDS, TRUSTED_PROXIES,
                          UI_REFRESH_SECONDS)
 from .steuerung import run_display_test_sequence
@@ -304,7 +307,10 @@ def index():
         DASHBOARD_VORLAGE,
         conf=conf, 
         data=d_data, 
-        beschreibung=vorschau_beschreibung(d_data, d_msg_raw),
+        beschreibung=vorschau_beschreibung(d_data, d_msg_raw,
+                                           ist_lehrermodus(conf)),
+        schild_name=schildname(conf),
+        lehrermodus=ist_lehrermodus(conf),
         now=display_time,
         sim_active=is_simulated,
         uhr_synchron=uhr_synchron,
@@ -338,7 +344,7 @@ def index():
         max_interval=MAX_UPDATE_SECONDS
     )
 
-def vorschau_beschreibung(data, meldung: str) -> str:
+def vorschau_beschreibung(data, meldung: str, lehrermodus: bool = False) -> str:
     """
     Beschreibt in Worten, was auf dem Display steht.
 
@@ -355,7 +361,11 @@ def vorschau_beschreibung(data, meldung: str) -> str:
     def stunde(lesson):
         teile = [lesson.stunde, lesson.zeit,
                  lesson.fach_lang or lesson.fach, lesson.klasse]
-        if lesson.lehrer:
+        # Wie auf dem Display: im Lehrer-Modus der Raum statt der Lehrkraft.
+        if lehrermodus:
+            if lesson.raum:
+                teile.append(f"Raum {lesson.raum}")
+        elif lesson.lehrer:
             teile.append(lesson.lehrer)
         # Dieselbe Rangfolge wie im Etikettenkasten des Displays. Die
         # Beschreibung soll das Bild wiedergeben, nicht eine zweite Meinung
@@ -455,7 +465,8 @@ def _speichern_abgelehnt(fehler: str):
 @verify_csrf
 def save():
     """
-    Uebernimmt Raumname und Abrufintervall aus dem Formular.
+    Uebernimmt Modus (Raum oder Lehrkraft), Raumname, Lehrerkuerzel und
+    Abrufintervall aus dem Formular.
 
     Der Raumname wurde bisher ungeprueft uebernommen. Ein leeres Feld fuehrte
     dazu, dass das Schild "Raum None fehlt." anzeigte - der Name geht als
@@ -475,15 +486,34 @@ def save():
     if not conf:
         return redirect('/')
 
-    raumname, fehler = pruefe_raumname(request.form.get('ROOM_NAME'))
+    # Fehlt die Auswahl im Formular, bleibt der bisherige Modus.
+    modus, fehler = pruefe_modus(request.form.get('MODE') or
+                                 (MODUS_LEHRER if ist_lehrermodus(conf) else MODUS_RAUM))
     if fehler:
         return _speichern_abgelehnt(fehler)
+
+    # Pflicht ist nur der Name, den der gewaehlte Modus benutzt. Der andere
+    # darf leer bleiben - dann bleibt sein bisheriger Wert stehen, damit ein
+    # Wechsel hin und zurueck nichts verliert.
+    raumname = lehrername = None
+    if modus == MODUS_RAUM or (request.form.get('ROOM_NAME') or '').strip():
+        raumname, fehler = pruefe_raumname(request.form.get('ROOM_NAME'))
+        if fehler:
+            return _speichern_abgelehnt(fehler)
+    if modus == MODUS_LEHRER or (request.form.get('TEACHER_NAME') or '').strip():
+        lehrername, fehler = pruefe_lehrername(request.form.get('TEACHER_NAME'))
+        if fehler:
+            return _speichern_abgelehnt(fehler)
 
     intervall, fehler = pruefe_intervall(request.form.get('AUTO_UPDATE_SECONDS'))
     if fehler:
         return _speichern_abgelehnt(fehler)
 
-    conf['ROOM_NAME'] = raumname
+    conf['MODE'] = modus
+    if raumname is not None:
+        conf['ROOM_NAME'] = raumname
+    if lehrername is not None:
+        conf['TEACHER_NAME'] = lehrername
     conf['AUTO_UPDATE_SECONDS'] = intervall
 
     save_config(conf)

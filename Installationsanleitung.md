@@ -83,6 +83,8 @@ Die Vorlage enthält folgende Parameter (hier zur besseren Übersicht auf zwei S
     "ADMIN_USER": "admin",  
     "ADMIN_PASS": "passwort",  
     "ROOM_NAME": "Raum101",  
+    "MODE": "raum",  
+    "TEACHER_NAME": "",  
     "AUTO_UPDATE_SECONDS": 900,  
     "DISPLAY_ACTIVE": true,  
     "TOUCH_ACTIVE": true,  
@@ -98,6 +100,8 @@ Die Vorlage enthält folgende Parameter (hier zur besseren Übersicht auf zwei S
         ]  
     }  
 }
+
+Mit MODE wählen Sie, ob das Schild den Plan eines Raums ("raum", Voreinstellung, Raum aus ROOM_NAME) oder einer Lehrkraft zeigt ("lehrer"). Im zweiten Fall tragen Sie unter TEACHER_NAME das Kürzel der Lehrkraft so ein, wie es in WebUntis steht. Der WebUntis-Zugang muss dann Lehrerpläne sehen dürfen.
 
 Die Parameter WEB_HOST und WEB_PUBLIC_URL steuern, worauf der Webserver lauscht und welche Adresse beim Start ausgegeben wird. Die Voreinstellungen passen zu der in Schritt 7 beschriebenen Einrichtung und müssen dort nicht angepasst werden; Abweichungen sind ebenfalls in Schritt 7 beschrieben.
 

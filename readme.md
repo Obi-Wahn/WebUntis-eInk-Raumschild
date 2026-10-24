@@ -105,6 +105,8 @@ Das Programm erfordert eine Konfigurationsdatei namens `config.json` im Hauptver
     "ADMIN_USER": "admin",
     "ADMIN_PASS": "passwort",
     "ROOM_NAME": "Raum101",
+    "MODE": "raum",
+    "TEACHER_NAME": "",
     "WEB_HOST": "127.0.0.1",
     "WEB_PUBLIC_URL": "",
     "AUTO_UPDATE_SECONDS": 900,
@@ -131,6 +133,8 @@ Das Programm erfordert eine Konfigurationsdatei namens `config.json` im Hauptver
     }
 }
 ```
+
+`MODE` legt fest, wessen Stundenplan das Schild zeigt: `"raum"` (Voreinstellung) zeigt den Plan des Raums aus `ROOM_NAME`, `"lehrer"` den Plan der Lehrkraft aus `TEACHER_NAME`. Dort steht das Kürzel, unter dem die Lehrkraft in WebUntis geführt wird (etwa `"Ah"`). Im Lehrer-Modus steht das Kürzel in der Kopfzeile, bei jeder Stunde wird der Raum statt der Lehrkraft angezeigt, und eine Lücke im Plan heißt „Freistunde" statt „Raum ist frei". Der WebUntis-Zugang braucht dafür das Recht, Lehrerpläne zu sehen. Beides lässt sich auch im Web-Interface umstellen.
 
 `WEB_HOST` legt fest, worauf der Webserver lauscht — voreingestellt nur auf dem Raspberry Pi selbst, weil der Zugriff von außen über den Reverse Proxy läuft. `WEB_PUBLIC_URL` überschreibt die Adresse, die beim Start ins Protokoll geschrieben wird; leer bedeutet, dass sie aus der Netzwerkadresse des Geräts gebildet wird. Beides ist in der [Installationsanleitung](./Installationsanleitung.md), Schritt 7, näher beschrieben.
 

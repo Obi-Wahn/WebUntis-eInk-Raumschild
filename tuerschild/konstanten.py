@@ -89,6 +89,13 @@ UI_REFRESH_SECONDS = MIN_UPDATE_SECONDS
 # Speichern geprueft.
 ROOM_NAME_MAX_LEN = 40
 
+# Was das Schild anzeigt: den Plan eines Raums (Voreinstellung) oder den
+# Plan einer Lehrkraft. Steht in der config.json unter "MODE". Im
+# Lehrer-Modus wird die Lehrkraft ueber ihr Kuerzel aus WebUntis gesucht
+# ("TEACHER_NAME"), und an jeder Stunde steht der Raum statt der Lehrkraft.
+MODUS_RAUM = "raum"
+MODUS_LEHRER = "lehrer"
+
 # Grenzen fuer den Stundenplan (SCHEDULE) in der config.json. Das
 # Web-Formular bearbeitet ihn nicht; geprueft wird beim Einlesen der von Hand
 # bearbeiteten Datei (pruefe_konfiguration). Die Grenzen fangen Tippfehler

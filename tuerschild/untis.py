@@ -2,7 +2,8 @@
 ==============================================================================
 Daten-Ebene: Abruf und Auswertung der WebUntis-Daten
 ==============================================================================
-Holt den Tagesplan fuer den konfigurierten Raum und entscheidet, welche Stunde
+Holt den Tagesplan fuer den konfigurierten Raum (oder, im Lehrer-Modus, fuer
+die konfigurierte Lehrkraft) und entscheidet, welche Stunde
 gerade laeuft und welche folgt. Enthaelt ausserdem die Offline-Ruecklage, die
 das Schild bei einer Netzstoerung arbeitsfaehig haelt.
 """
@@ -14,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import webuntis
 
-from .konfiguration import get_now
+from .konfiguration import get_now, ist_lehrermodus
 from .konstanten import (ERR_NO_NETWORK, ERR_UNTIS_OFFLINE, EXAMS_CACHE_SECONDS,
                          PRUEFUNG_AB_JAHRGANG, PRUEFUNG_KLASSENARBEIT,
                          PRUEFUNG_KLAUSUR,
@@ -172,6 +173,12 @@ def parse_lesson(lesson, conf: Dict[str, Any], pruefungen=None) -> Optional[Less
                              pruefungen):
             pruefung = pruefungs_etikett([k.name for k in klassen])
     
+    # Den Raum lesen wir nur im Lehrer-Modus. Im Raum-Modus ist er ohnehin
+    # der eigene, und jeder Zugriff kann die Bibliothek eine Anfrage kosten.
+    raum = ""
+    if ist_lehrermodus(conf):
+        raum = ", ".join([r.name for r in getattr(lesson, 'rooms', [])])
+
     # Rückgabe als sicher typisierte Dataclass
     return Lesson(
         fach=fach_kurz,
@@ -183,6 +190,7 @@ def parse_lesson(lesson, conf: Dict[str, Any], pruefungen=None) -> Optional[Less
         status_code=getattr(lesson, 'code', None),
         stunden_info=" | ".join(info_parts),
         pruefung=pruefung,
+        raum=raum,
     )
 
 def resolve_timetable(timetable, conf: Dict[str, Any], pruefungen=None) -> List[TimedLesson]:
@@ -251,6 +259,9 @@ def select_lessons(lessons: List[TimedLesson], conf: Dict[str, Any], now: dateti
             next_lesson = eintrag.lesson
 
     message = ""
+    # Im Lehrer-Modus ist eine Luecke im Plan keine leere Tuer, sondern eine
+    # Freistunde der Lehrkraft.
+    frei = "Freistunde" if ist_lehrermodus(conf) else "Raum ist frei"
     # Freistunden / Pausen generieren
     if current_lesson is None:
         schedule = conf.get("SCHEDULE", {})
@@ -263,7 +274,7 @@ def select_lessons(lessons: List[TimedLesson], conf: Dict[str, Any], now: dateti
             elif now_time >= datetime.time(de_h, de_m):
                 message = "Unterrichtsende"
             else:
-                message = "Raum ist frei"
+                message = frei
                 # Befindet sich die aktuelle Zeit in einem definierten Pausen-Slot?
                 for b in schedule.get("BREAKS", []):
                     bs_h, bs_m = map(int, str(b.get("start", "00:00")).split(":"))
@@ -273,7 +284,7 @@ def select_lessons(lessons: List[TimedLesson], conf: Dict[str, Any], now: dateti
                         break
         except Exception as e:
             logging.warning(f"Zeit-Parsing Fehler: {e}")
-            message = "Raum ist frei"
+            message = frei
 
     # Die Stunden sind bereits ausgelesen - hier wird nur noch ausgewählt.
     return {"current": current_lesson, "next": next_lesson}, message
@@ -330,9 +341,12 @@ def ist_ferien_fehler(fehler: Exception) -> bool:
                ("schoolyear", "schuljahr", "date out of range",
                 "no allowed date", "notallowed"))
 
-def hole_stundenplan(session, raum, tag):
+def hole_stundenplan(session, tag, **element):
     """
     Holt den Tagesplan des Raums - moeglichst in der erweiterten Fassung.
+
+    'element' sagt, wessen Plan: room=<Raum> oder, im Lehrer-Modus,
+    teacher=<Lehrkraft>. Beide Faelle laufen ueber denselben Abruf.
 
     WARUM ERWEITERT: Die Bemerkungsfelder (info, lstext, substText) gibt
     WebUntis nur heraus, wenn der Abruf sie ausdruecklich anfordert. Der
@@ -351,21 +365,23 @@ def hole_stundenplan(session, raum, tag):
     Versuch zwecklos, und der Fehler soll die Ferien-Erkennung erreichen.
     """
     try:
-        return session.timetable_extended(room=raum, start=tag, end=tag)
+        return session.timetable_extended(start=tag, end=tag, **element)
     except Exception as fehler:
         if ist_ferien_fehler(fehler):
             raise
         logging.warning("Erweiterter Stundenplan-Abruf fehlgeschlagen (%s) - "
                         "einfacher Abruf ohne Bemerkungsfelder.", fehler)
-        return session.timetable(room=raum, start=tag, end=tag)
+        return session.timetable(start=tag, end=tag, **element)
 
 def get_current_lesson(conf: Dict[str, Any]) -> Tuple[Optional[Dict[str, Optional[Lesson]]], str]:
     """
     Hauptfunktion der Daten-Ebene: Verbindet sich mit der WebUntis-API, lädt den
-    Tagesplan für den konfigurierten Raum herunter und filtert heraus, was 
-    JETZT gerade stattfindet und was DANACH passiert.
+    Tagesplan für den konfigurierten Raum (bzw. die Lehrkraft) herunter und
+    filtert heraus, was JETZT gerade stattfindet und was DANACH passiert.
     """
-    req_keys = ['UNTIS_SERVER', 'UNTIS_USER', 'UNTIS_PASS', 'UNTIS_SCHOOL', 'ROOM_NAME']
+    lehrermodus = ist_lehrermodus(conf)
+    name_key = 'TEACHER_NAME' if lehrermodus else 'ROOM_NAME'
+    req_keys = ['UNTIS_SERVER', 'UNTIS_USER', 'UNTIS_PASS', 'UNTIS_SCHOOL', name_key]
     if not conf or any(not conf.get(k) for k in req_keys):
         return None, "Konfiguration unvollständig."
     
@@ -387,9 +403,18 @@ def get_current_lesson(conf: Dict[str, Any]) -> Tuple[Optional[Dict[str, Optiona
         )
         session.login()
         
-        rooms = session.rooms().filter(name=conf.get('ROOM_NAME'))
-        if not rooms:
-            return None, f"Raum {conf.get('ROOM_NAME')} fehlt."
+        # Gesucht wird nach dem Namen, den WebUntis selbst fuehrt: beim Raum
+        # die Raumbezeichnung, bei der Lehrkraft das Kuerzel ("Ah").
+        if lehrermodus:
+            treffer = session.teachers().filter(name=conf.get(name_key))
+            if not treffer:
+                return None, f"Lehrkraft {conf.get(name_key)} fehlt."
+            element = {"teacher": treffer[0]}
+        else:
+            treffer = session.rooms().filter(name=conf.get(name_key))
+            if not treffer:
+                return None, f"Raum {conf.get(name_key)} fehlt."
+            element = {"room": treffer[0]}
         
         now = get_now()
         today = now.date()
@@ -424,7 +449,7 @@ def get_current_lesson(conf: Dict[str, Any]) -> Tuple[Optional[Dict[str, Optiona
             return {"current": None, "next": None}, "Schönes Wochenende!"
             
         try:
-            timetable = hole_stundenplan(session, rooms[0], today)
+            timetable = hole_stundenplan(session, today, **element)
         except Exception as e:
             # WebUntis sperrt oft den Kalender in den Sommerferien hart ab.
             # Statt eines Absturzes werten wir den Error-String aus und zeigen Ferien an.

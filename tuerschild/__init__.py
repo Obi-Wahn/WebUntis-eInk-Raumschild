@@ -30,6 +30,7 @@ from .konstanten import (BACKGROUND_ERROR_PAUSE, DEFAULT_UPDATE_SECONDS,
                          FAILED_LOGIN_TTL, HOLIDAYS_CACHE_SECONDS,
                          LOGIN_LOCKOUT_SECONDS, MAX_LOGIN_ATTEMPTS,
                          MAX_UPDATE_SECONDS, MIN_UPDATE_SECONDS,
+                         MODUS_LEHRER, MODUS_RAUM,
                          PROJEKT_VERZEICHNIS, ROOM_NAME_MAX_LEN,
                          SCHEDULE_MAX_BREAKS, SCHEDULE_MAX_LESSONS,
                          SCHEDULE_NAME_MAX_LEN, SIMULATION_MAX_SECONDS,
@@ -44,10 +45,11 @@ from .konstanten import (BACKGROUND_ERROR_PAUSE, DEFAULT_UPDATE_SECONDS,
                          UI_WIDTH, WAVESHARE_LIB)
 from .zustand import AppState, Lesson, TimedLesson, app_state
 from .konfiguration import (CONFIG_FILE, formatiere_dauer, get_cached_config,
-                            get_now, get_update_interval,
+                            get_now, get_update_interval, ist_lehrermodus,
                             melde_konfigurationsfehler, pruefe_intervall,
-                            pruefe_konfiguration, pruefe_raumname,
-                            pruefe_stundenplan, save_config, uhr_synchronisiert)
+                            pruefe_konfiguration, pruefe_lehrername,
+                            pruefe_modus, pruefe_raumname, pruefe_stundenplan,
+                            save_config, schildname, uhr_synchronisiert)
 from .hardware import (check_touch_via_i2c, clear_display_once,
                        clear_touch_interrupt_via_i2c, init_fonts)
 from .anzeige import (build_detail_line, draw_lesson_block, get_text_width,

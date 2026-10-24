@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import hardware
 from .hardware import init_fonts
-from .konfiguration import get_now
+from .konfiguration import get_now, ist_lehrermodus, schildname
 from .konstanten import (ROOM_NAME_MAX_LEN, STATUS_LABELS, UI_BADGE_GAP,
                          UI_BADGE_PADDING,
                          UI_BLOCK_DANACH_Y, UI_BLOCK_JETZT_Y, UI_ELLIPSIS,
@@ -64,7 +64,8 @@ def truncate_to_width(draw: ImageDraw.ImageDraw, text: str, font, max_width: int
             return text[:i] + UI_ELLIPSIS
     return ""
 
-def build_detail_line(draw: ImageDraw.ImageDraw, lesson: Lesson, font, max_width: int) -> str:
+def build_detail_line(draw: ImageDraw.ImageDraw, lesson: Lesson, font, max_width: int,
+                      lehrermodus: bool = False) -> str:
     """
     Setzt die Detailzeile (Klasse, Lehrkraft, Zusatzinfo) so zusammen, dass sie
     in die verfügbare Breite passt.
@@ -82,11 +83,36 @@ def build_detail_line(draw: ImageDraw.ImageDraw, lesson: Lesson, font, max_width
     "Lehrkraft: ", die allein schon 57 Pixel kostet. Innerhalb der
     Schulgemeinschaft sind die Kürzel geläufig, das Kürzel für sich genommen
     ist also weiterhin verständlich.
+
+    IM LEHRER-MODUS steht an dieser Stelle der Raum, denn die Lehrkraft steht
+    schon in der Kopfzeile. Der Raum ist dort auch die wichtigste Angabe -
+    wer die Lehrkraft sucht, will wissen, wo sie ist. Deshalb faellt er erst
+    ganz zuletzt weg, nach der Klasse.
     """
     klasse = f"Kl: {lesson.klasse}" if lesson.klasse else ""
+    info = lesson.stunden_info or ""
+
+    if lehrermodus:
+        raum_lang = f"Raum: {lesson.raum}" if lesson.raum else ""
+        raum = lesson.raum or ""
+        for teile in ([raum_lang, klasse, info],  # alles ausgeschrieben
+                      [raum, klasse, info],       # nur noch der Raumname
+                      [raum, info]):              # Klasse entfaellt
+            zeile = " | ".join(t for t in teile if t)
+            if zeile and get_text_width(draw, zeile, font) <= max_width:
+                return zeile
+        # Zu lang ist dann nur noch die Bemerkung: Sie wird gekuerzt, der
+        # Raum bleibt stehen.
+        if raum and info:
+            vorne = f"{raum} | "
+            rest = max_width - get_text_width(draw, vorne, font)
+            gekuerzt = truncate_to_width(draw, info, font, rest)
+            if gekuerzt:
+                return vorne + gekuerzt
+        return truncate_to_width(draw, raum or info or klasse, font, max_width)
+
     lehrkraft = f"Lehrkraft: {lesson.lehrer}" if lesson.lehrer else ""
     kuerzel = lesson.lehrer or ""
-    info = lesson.stunden_info or ""
 
     for teile in ([klasse, lehrkraft, info],   # alles ausgeschrieben
                   [klasse, kuerzel, info],     # nur noch das Kuerzel der Lehrkraft
@@ -159,7 +185,8 @@ def waehle_etikett(lesson: Lesson) -> Optional[str]:
         return lesson.pruefung
     return STATUS_LABELS.get(lesson.status_code)
 
-def draw_lesson_block(draw: ImageDraw.ImageDraw, lesson: Lesson, y_offset: int, label_text: str, f_small, f_reg, f_med) -> None:
+def draw_lesson_block(draw: ImageDraw.ImageDraw, lesson: Lesson, y_offset: int, label_text: str, f_small, f_reg, f_med,
+                      lehrermodus: bool = False) -> None:
     """
     Zeichnet einen strukturierten Unterrichtsblock (JETZT oder DANACH) als Grafik.
     Wertet die Status-Codes (cancelled = Ausfall, irregular = Vertretung) aus
@@ -202,9 +229,10 @@ def draw_lesson_block(draw: ImageDraw.ImageDraw, lesson: Lesson, y_offset: int, 
     fach_anzeige = truncate_to_width(draw, fach_anzeige, f_reg, UI_WIDTH - UI_MARGIN - fach_x)
     draw.text((fach_x, y_content), fach_anzeige, font=f_reg, fill=0)
 
-    # ZEILE 2: Zusatzinfos (Klasse, Lehrkraft, Info-Text)
+    # ZEILE 2: Zusatzinfos (Klasse, Lehrkraft bzw. Raum, Info-Text)
     y_details = y_content + 13
-    detail_str = build_detail_line(draw, lesson, f_small, UI_WIDTH - 2 * UI_MARGIN)
+    detail_str = build_detail_line(draw, lesson, f_small, UI_WIDTH - 2 * UI_MARGIN,
+                                   lehrermodus)
     draw.text((UI_MARGIN, y_details), detail_str, font=f_small, fill=0)
 
 # Zeichenmuster fuer die Abschaetzung im Web-Formular. Die Schrift ist
@@ -332,9 +360,12 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
     zeit_x = rechter_rand - get_text_width(draw, time_str, f_small)
     draw.text((zeit_x, 5), time_str, font=f_small, fill=255)
 
-    raum = truncate_to_width(draw, conf.get('ROOM_NAME', 'Unbekannt'), f_med,
+    # Im Lehrer-Modus steht hier das Kuerzel der Lehrkraft statt des Raums.
+    raum = truncate_to_width(draw, schildname(conf), f_med,
                              zeit_x - UI_MARGIN - UI_HEADER_GAP)
     draw.text((UI_MARGIN, 3), raum, font=f_med, fill=255)
+
+    lehrermodus = ist_lehrermodus(conf)
 
     # --- HAUPTBEREICH (Unterricht) ---
     if data and (data.get('current') or data.get('next')):
@@ -342,7 +373,8 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
         next_lesson = data.get('next')
 
         if curr_lesson:
-            draw_lesson_block(draw, curr_lesson, UI_BLOCK_JETZT_Y, "JETZT:", f_small, f_reg, f_med)
+            draw_lesson_block(draw, curr_lesson, UI_BLOCK_JETZT_Y, "JETZT:", f_small, f_reg, f_med,
+                              lehrermodus)
         else:
             # Gekuerzt wie alles andere auch: Pausennamen duerfen 30 Zeichen
             # lang sein, in 18 Punkt passen aber nur etwa 17 - der Rest liefe
@@ -353,7 +385,8 @@ def zeichne_anzeige(data: Optional[Dict[str, Optional[Lesson]]], message: str, c
         draw.line((UI_MARGIN, UI_LINE_Y, UI_WIDTH - UI_MARGIN, UI_LINE_Y), fill=0, width=1)
 
         if next_lesson:
-            draw_lesson_block(draw, next_lesson, UI_BLOCK_DANACH_Y, "DANACH:", f_small, f_reg, f_med)
+            draw_lesson_block(draw, next_lesson, UI_BLOCK_DANACH_Y, "DANACH:", f_small, f_reg, f_med,
+                              lehrermodus)
         else:
             msg_text = "Kein Unterricht mehr heute." if "Unterrichtsende" not in message else "Bis morgen!"
             draw.text((UI_MARGIN, UI_BLOCK_DANACH_Y), "DANACH:", font=f_small, fill=0)
