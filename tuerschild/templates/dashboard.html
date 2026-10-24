@@ -171,7 +171,7 @@
         
         .form-group { margin-bottom: 20px; }
         label { display: block; font-size: 10px; font-weight: 800; color: var(--text-leise); text-transform: uppercase; margin-bottom: 5px; }
-        input { width: 100%; box-sizing: border-box; background-color: var(--feld); color: var(--text); border: 1px solid var(--linie); padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; outline: none; }
+        input, select { width: 100%; box-sizing: border-box; background-color: var(--feld); color: var(--text); border: 1px solid var(--linie); padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600; outline: none; }
         
         /* Kurzuebersicht unter der Vorschau. Sie fuellt nicht nur die Flaeche,
            die rechts frei bleibt, wenn gerade kein Unterricht ist - sie
@@ -210,7 +210,7 @@
                unnoetig lang. Hier reicht deutlich weniger. */
             .btn { padding: 11px 14px; font-size: 13px; border-radius: 10px; }
             .btn-save { font-size: 14px; padding: 12px 14px; }
-            input { padding: 10px; }
+            input, select { padding: 10px; }
             .form-group { margin-bottom: 16px; }
             .btn-group { gap: 8px; margin-bottom: 12px; }
             .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
@@ -235,7 +235,7 @@
         <div class="header">
             <div>
                 <h1>Display-Control</h1>
-                <p>{{ conf.get('ROOM_NAME', 'Unbekannt') }} | Raumanzeige</p>
+                <p>{{ schild_name }} | {% if lehrermodus %}Lehreranzeige{% else %}Raumanzeige{% endif %}</p>
             </div>
             <div class="kopf-status">
                 Stand: {{ now }}
@@ -327,8 +327,15 @@
                     <form action="/save" method="POST">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <div class="form-group">
-                            <label>Anzeigeraum</label>
-                            <input type="text" name="ROOM_NAME" value="{{ conf.get('ROOM_NAME', '') }}" maxlength="{{ room_max }}" required>
+                            <label for="feld-modus">Anzeigen</label>
+                            <select id="feld-modus" name="MODE">
+                                <option value="raum" {% if not lehrermodus %}selected{% endif %}>Stundenplan eines Raums</option>
+                                <option value="lehrer" {% if lehrermodus %}selected{% endif %}>Stundenplan einer Lehrkraft</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="feld-raum">Anzeigeraum</label>
+                            <input type="text" id="feld-raum" name="ROOM_NAME" value="{{ conf.get('ROOM_NAME', '') }}" maxlength="{{ room_max }}">
                             {# Das Feld nimmt {{ room_max }} Zeichen an, in die Kopfzeile
                                des Displays passen aber deutlich weniger. Ohne diesen
                                Hinweis merkt man das erst nach dem Speichern - an den drei
@@ -338,6 +345,12 @@
                             <p class="feld-hinweis">Auf dem Schild sind je nach Buchstaben
                                etwa {{ room_sichtbar[0] }} bis {{ room_sichtbar[1] }} Zeichen
                                sichtbar, längere Namen werden gekürzt.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="feld-lehrer">Lehrkraft (Kürzel wie in WebUntis)</label>
+                            <input type="text" id="feld-lehrer" name="TEACHER_NAME" value="{{ conf.get('TEACHER_NAME', '') }}" maxlength="{{ room_max }}">
+                            <p class="feld-hinweis">Nur für den Lehrer-Modus. Auf dem Schild steht
+                               dann das Kürzel oben und bei jeder Stunde der Raum.</p>
                         </div>
                         <div class="form-group">
                             <label>Intervall (Sekunden, mind. {{ min_interval }})</label>
@@ -358,7 +371,7 @@
                        speicher zeigt. #}
                     <div class="panel">
                         <img src="/vorschau.png?t={{ now }}" width="250" height="122"
-                             alt="Anzeige im Raum {{ conf.get('ROOM_NAME', '') }} &ndash; {{ beschreibung }}">
+                             alt="Anzeige {{ schild_name }} &ndash; {{ beschreibung }}">
                     </div>
                     <p class="panel-hinweis">250 &times; 122 Pixel &ndash; genau das steht auf dem Schild</p>
 

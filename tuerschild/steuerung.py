@@ -42,9 +42,9 @@ def demo_daten():
     return {
         "current": Lesson("Informatik", "Informatik", "Ab", "11B",
                           "09:55 - 10:40", "3. Std.", None,
-                          "Theorieunterricht - Netzwerktechnik"),
+                          "Theorieunterricht - Netzwerktechnik", raum="In1"),
         "next": Lesson("Geschichte", "Geschichte", "Cd", "9B",
-                       "10:45 - 11:30", "4. Std.", None, ""),
+                       "10:45 - 11:30", "4. Std.", None, "", raum="A101"),
     }
 
 # Erfundene Stunden fuer den Fall, dass noch kein Tagesplan vorliegt - etwa
@@ -57,9 +57,9 @@ def demo_daten():
 # Stelle des Layouts bliebe ungezeigt. tests/test_demo_und_testlauf.py haelt
 # das nach, damit die Zusicherung nicht beim naechsten Umbenennen verlorengeht.
 ERSATZSTUNDE_JETZT = Lesson("GeWi", "Gesellschaftswissenschaften", "Gk", "8C",
-                            "11:45 - 12:30", "5. Std.", None, "")
+                            "11:45 - 12:30", "5. Std.", None, "", raum="B204")
 ERSATZSTUNDE_DANACH = Lesson("WuN", "Werte u. Normen", "Ab", "9B",
-                             "12:35 - 13:20", "6. Std.", None, "")
+                             "12:35 - 13:20", "6. Std.", None, "", raum="A101")
 
 # Bemerkungstexte der Szenarien. Sie bleiben erfunden, auch wenn die Stunden
 # echt sind: Echte Stunden tragen meistens gar keine Bemerkung, und dann bliebe

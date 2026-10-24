@@ -6,6 +6,8 @@
     "ADMIN_USER": "admin",
     "ADMIN_PASS": "passwort",
     "ROOM_NAME": "Raum101",
+    "MODE": "raum",
+    "TEACHER_NAME": "",
     "WEB_HOST": "127.0.0.1",
     "WEB_PUBLIC_URL": "",
     "AUTO_UPDATE_SECONDS": 900,

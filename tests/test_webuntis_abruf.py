@@ -54,7 +54,7 @@ class SitzungsAttrappe:
     def holidays(self):
         return []
 
-    def timetable(self, room, start, end):
+    def timetable(self, start, end, **element):
         # Der einfache Abruf. Er liefert keine Bemerkungsfelder - deshalb haelt
         # die Attrappe fest, wenn das Programm ihn benutzt hat.
         self.notizen["einfacher_abruf"] = True
@@ -62,7 +62,7 @@ class SitzungsAttrappe:
             raise self._fehler_plan
         return self._stunden
 
-    def timetable_extended(self, room, start, end):
+    def timetable_extended(self, start, end, **element):
         """
         Der erweiterte Abruf - der, den das Programm benutzen soll.
 

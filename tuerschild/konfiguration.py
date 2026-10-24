@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .konstanten import (DEFAULT_DAY_END, DEFAULT_DAY_START,
                          DEFAULT_UPDATE_SECONDS, MAX_UPDATE_SECONDS,
-                         MIN_UPDATE_SECONDS, PROJEKT_VERZEICHNIS,
+                         MIN_UPDATE_SECONDS, MODUS_LEHRER, MODUS_RAUM,
+                         PROJEKT_VERZEICHNIS,
                          ROOM_NAME_MAX_LEN, SCHEDULE_MAX_BREAKS,
                          SCHEDULE_MAX_LESSONS, SCHEDULE_NAME_MAX_LEN,
                          SIMULATION_MAX_SECONDS, TIMESYNC_MARKE,
@@ -140,30 +141,72 @@ def get_update_interval(conf: Dict[str, Any]) -> int:
 # ist gesetzt. Diese Form zwingt die aufrufende Stelle dazu, den Fehlerfall zu
 # behandeln - anders als eine Funktion, die im Zweifel None zurueckgibt und
 # deren Rueckgabe man versehentlich einfach weiterreicht.
-def pruefe_raumname(wert: Any) -> Tuple[Optional[str], Optional[str]]:
+def pruefe_raumname(wert: Any, bezeichnung: str = "Der Raumname"
+                    ) -> Tuple[Optional[str], Optional[str]]:
     """
     Prueft den Raumnamen aus dem Formular.
 
     Der Name ist keine Kosmetik: Er geht als Suchbegriff an WebUntis. Bisher
     wurde er ungeprueft uebernommen - ein leeres Feld fuehrte dazu, dass das
     Schild "Raum None fehlt." anzeigte, und die Ursache stand nirgends.
+
+    Das Lehrerkuerzel im Lehrer-Modus hat genau dieselben Aufgaben (Suchbegriff
+    und Kopfzeile) und wird deshalb hiermit geprueft; 'bezeichnung' stellt nur
+    die Fehlertexte darauf um.
     """
     if wert is None:
-        return None, "Der Raumname fehlt in der Anfrage."
+        return None, f"{bezeichnung} fehlt in der Anfrage."
 
     name = str(wert).strip()
 
     if not name:
-        return None, "Der Raumname darf nicht leer sein."
+        return None, f"{bezeichnung} darf nicht leer sein."
     if len(name) > ROOM_NAME_MAX_LEN:
-        return None, (f"Der Raumname ist zu lang (maximal {ROOM_NAME_MAX_LEN} "
+        return None, (f"{bezeichnung} ist zu lang (maximal {ROOM_NAME_MAX_LEN} "
                       f"Zeichen, eingegeben: {len(name)}).")
     # Steuerzeichen (Zeilenumbrueche, Tabulatoren) kommen nur durch Einfuegen
     # aus einer anderen Anwendung herein und wuerden die Kopfzeile zerlegen.
     if any(ord(zeichen) < 32 for zeichen in name):
-        return None, "Der Raumname enthält unerlaubte Sonderzeichen."
+        return None, f"{bezeichnung} enthält unerlaubte Sonderzeichen."
 
     return name, None
+
+
+def pruefe_lehrername(wert: Any) -> Tuple[Optional[str], Optional[str]]:
+    """Prueft das Lehrerkuerzel aus dem Formular (Lehrer-Modus)."""
+    return pruefe_raumname(wert, "Das Lehrerkürzel")
+
+
+def pruefe_modus(wert: Any) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Prueft die Auswahl Raum- oder Lehrer-Modus.
+
+    Gross- und Kleinschreibung zaehlen nicht: Von Hand steht in der
+    config.json schnell einmal "Lehrer".
+    """
+    modus = str(wert if wert is not None else "").strip().lower()
+    if modus in (MODUS_RAUM, MODUS_LEHRER):
+        return modus, None
+    return None, (f"Unbekannter Modus '{wert}' - erlaubt sind "
+                  f"'{MODUS_RAUM}' und '{MODUS_LEHRER}'.")
+
+
+def ist_lehrermodus(conf: Dict[str, Any]) -> bool:
+    """
+    Sagt, ob das Schild den Plan einer Lehrkraft statt eines Raums zeigt.
+
+    Fehlt "MODE" oder ist er unbrauchbar, bleibt es beim Raum: So laufen alle
+    bestehenden config.json-Dateien unveraendert weiter.
+    """
+    modus, _ = pruefe_modus((conf or {}).get('MODE', MODUS_RAUM))
+    return modus == MODUS_LEHRER
+
+
+def schildname(conf: Dict[str, Any]) -> str:
+    """Der Name in der Kopfzeile: Raumname oder Lehrerkuerzel, je nach Modus."""
+    conf = conf or {}
+    schluessel = 'TEACHER_NAME' if ist_lehrermodus(conf) else 'ROOM_NAME'
+    return conf.get(schluessel) or 'Unbekannt'
 
 
 def pruefe_intervall(wert: Any) -> Tuple[Optional[int], Optional[str]]:
@@ -342,9 +385,20 @@ def pruefe_konfiguration(conf: Dict[str, Any]) -> List[str]:
     """
     beanstandungen = []
 
-    _, fehler = pruefe_raumname(conf.get('ROOM_NAME'))
+    _, fehler = pruefe_modus(conf.get('MODE', MODUS_RAUM))
     if fehler:
-        beanstandungen.append(f"ROOM_NAME: {fehler}")
+        beanstandungen.append(f"MODE: {fehler} Es wird der Raum angezeigt.")
+
+    # Geprueft wird nur der Name, den der gewaehlte Modus auch benutzt. Ein
+    # leerer Raumname im Lehrer-Modus ist kein Fehler, sondern der Normalfall.
+    if ist_lehrermodus(conf):
+        _, fehler = pruefe_lehrername(conf.get('TEACHER_NAME'))
+        if fehler:
+            beanstandungen.append(f"TEACHER_NAME: {fehler}")
+    else:
+        _, fehler = pruefe_raumname(conf.get('ROOM_NAME'))
+        if fehler:
+            beanstandungen.append(f"ROOM_NAME: {fehler}")
 
     if 'SCHEDULE' not in conf:
         beanstandungen.append(

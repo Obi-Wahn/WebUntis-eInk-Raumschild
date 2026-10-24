@@ -34,6 +34,9 @@ class Lesson:
     # es mitträgt: Faellt WebUntis waehrend einer Arbeit aus, soll an der Tuer
     # weiter stehen, dass drinnen geschrieben wird.
     pruefung: str = ""
+    # Raum der Stunde. Nur im Lehrer-Modus gefuellt: Dort steht er in der
+    # Detailzeile an der Stelle, die im Raum-Modus die Lehrkraft einnimmt.
+    raum: str = ""
 
 @dataclass
 class TimedLesson:
