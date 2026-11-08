@@ -10,7 +10,7 @@
 # ignorieren.
 # ------------------------------------------------------------------------------
 
-pytest==9.1.1            # Testrahmen
+pytest==9.2.0            # Testrahmen
 
 # --- Laufzeit-Pakete ohne Hardware-Bezug ---
 # Diese Zeilen sind eine bewusste Wiederholung aus requirements.txt.
