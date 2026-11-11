@@ -1,5 +1,24 @@
 # Konfigurationsdatei mit echten Zugangsdaten (WebUntis-Login, Admin-Passwort)
 config.json
+# Kopien davon, etwa vor einer Aenderung von Hand angelegt
+config.json.*
+*.bak
+# Zwischendatei beim Speichern der config.json (tempfile, Name "tmp...").
+# Bricht das Speichern ab, bleibt sie liegen - mit allen Passwoertern darin.
+/tmp*
+
+# Lokale Einstellungen von Claude Code. Darin landen dauerhaft erlaubte
+# Befehle im Klartext - samt Passwoertern, die in einem Befehl standen.
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Sonstige typische Ablagen fuer Zugangsdaten
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
 
 # Python
 __pycache__/
